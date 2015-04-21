@@ -1,0 +1,60 @@
+Source: python-autobahn
+Section: python
+Priority: optional
+Maintainer: PKG OpenStack <openstack-devel@lists.alioth.debian.org>
+Uploaders: Thomas Goirand <zigo@debian.org>,
+Build-Depends: debhelper (>= 9),
+               dh-python,
+               python-all (>= 2.6.6-3~),
+               python-setuptools,
+               python3-all,
+               python3-setuptools,
+Build-Depends-Indep: python-concurrent.futures (>= 2.1.5),
+                     python-lz4 (>= 0.2.1),
+                     python-msgpack (>= 0.4.0),
+                     python-mock,
+                     python-pytest (>= 2.6),
+                     python-six,
+                     python-snappy (>= 0.5),
+                     python-trollius (>= 0.1.2),
+                     python-twisted (>= 11.1),
+                     python-txaio (>= 1.0.0),
+                     python-zope.interface (>= 3.6),
+#                     python3-lz4 (>= 0.2.1),
+#                     python3-msgpack (>= 0.4.0),
+#                     python3-pytest (>= 2.6.4),
+#                     python3-six,
+#                     python3-snappy (>= 0.5),
+#                     python3-twisted (>= 11.1),
+#                     python3-txaio (>= 1.0.0),
+#                     python3-zope.interface (>= 3.6),
+Standards-Version: 3.9.6
+Vcs-Browser: http://anonscm.debian.org/gitweb/?p=openstack/python-autobahn.git
+Vcs-Git: git://anonscm.debian.org/openstack/python-autobahn.git
+Homepage: http://autobahn.ws/python
+
+Package: python-autobahn
+Architecture: all
+Depends: python-concurrent.futures (>= 2.1.5),
+         python-lz4 (>= 0.2.1),
+         python-msgpack (>= 0.4.0),
+         python-six,
+         python-snappy (>= 0.5),
+         python-trollius (>= 0.1.2),
+         python-twisted (>= 11.1),
+         python-txaio (>= 1.0.0),
+         python-zope.interface (>= 3.6),
+         ${misc:Depends},
+         ${python:Depends},
+Description: WebSocket client and server library, WAMP framework - Python 2.x
+ Autobahn|Python is a networking library that is part of the Autobahn project
+ and provides implementations of:
+  * The WebSocket Protocol
+  * The Web Application Messaging Protocol (WAMP)
+ for Twisted and asyncio, on Python 2 & 3 and for writing servers and clients.
+ .
+ WebSocket allows bidirectional real-time messaging on the Web and WAMP adds
+ asynchronous Remote Procedure Calls and Publish & Subscribe on top of
+ WebSocket.
+ .
+ This package contains the Python 2.x module.

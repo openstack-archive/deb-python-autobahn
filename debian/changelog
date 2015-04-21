@@ -1,0 +1,5 @@
+python-autobahn (0.10.3-1) unstable; urgency=medium
+
+  * Initial release. (Closes: #XXXXXX)
+
+ -- Thomas Goirand <zigo@debian.org>  Tue, 21 Apr 2015 10:42:55 +0200
