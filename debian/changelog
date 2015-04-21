@@ -1,5 +1,15 @@
-python-autobahn (0.10.3-1) unstable; urgency=medium
+python-autobahn (0.10.3+dfsg1-1) experimental; urgency=medium
 
-  * Initial release. (Closes: #XXXXXX)
+  * New upstream release. (Closes: #780061, #730796)
+  * Now team maintaining the package within the OpenStack team, added Victor as
+    uploader, set VCS URLs (see #780061 where Victor agrees with this).
+  * Now running unit tests at build time.
+  * Package is now +dfsg1 because of non-free files in the example folder.
 
  -- Thomas Goirand <zigo@debian.org>  Tue, 21 Apr 2015 10:42:55 +0200
+
+python-autobahn (0.5.14-1) unstable; urgency=low
+
+  * Initial release (Closes: #702208)
+
+ -- Victor Vasiliev <vasilvv@mit.edu>  Fri, 15 Mar 2013 17:58:53 -0400
