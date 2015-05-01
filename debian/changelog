@@ -1,3 +1,9 @@
+python-autobahn (0.10.3+dfsg1-2) unstable; urgency=medium
+
+  * Uploading to unstable.
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 01 May 2015 13:47:56 +0200
+
 python-autobahn (0.10.3+dfsg1-1) experimental; urgency=medium
 
   * New upstream release. (Closes: #780061, #730796)
