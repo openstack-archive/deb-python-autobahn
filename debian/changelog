@@ -1,3 +1,9 @@
+python-autobahn (0.10.3+dfsg1-3) unstable; urgency=medium
+
+  * Removed Victor Vasiliev <vasilvv@mit.edu> from uploaders (Closes: #795882).
+
+ -- Thomas Goirand <zigo@debian.org>  Mon, 14 Sep 2015 10:54:20 +0000
+
 python-autobahn (0.10.3+dfsg1-2) unstable; urgency=medium
 
   * Uploading to unstable.
