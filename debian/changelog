@@ -1,3 +1,9 @@
+python-autobahn (0.10.3+dfsg1-5) unstable; urgency=medium
+
+  * Stop using py.test-X.Y (Closes: #814846).
+
+ -- Thomas Goirand <zigo@debian.org>  Wed, 17 Feb 2016 05:57:17 +0000
+
 python-autobahn (0.10.3+dfsg1-4) unstable; urgency=medium
 
   * Do not break python-twisted 15.x: applied upstream patch. (Closes: #810155)
