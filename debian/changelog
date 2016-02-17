@@ -1,3 +1,9 @@
+python-autobahn (0.10.3+dfsg1-4) unstable; urgency=medium
+
+  * Do not break python-twisted 15.x: applied upstream patch. (Closes: #810155)
+
+ -- Thomas Goirand <zigo@debian.org>  Wed, 17 Feb 2016 05:07:10 +0000
+
 python-autobahn (0.10.3+dfsg1-3) unstable; urgency=medium
 
   * Removed Victor Vasiliev <vasilvv@mit.edu> from uploaders (Closes: #795882).
