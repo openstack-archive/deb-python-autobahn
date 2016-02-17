@@ -29,8 +29,8 @@ Build-Depends-Indep: python-concurrent.futures (>= 2.1.5),
 #                     python3-txaio (>= 1.0.0),
 #                     python3-zope.interface (>= 3.6),
 Standards-Version: 3.9.6
-Vcs-Browser: http://anonscm.debian.org/gitweb/?p=openstack/python-autobahn.git
-Vcs-Git: git://anonscm.debian.org/openstack/python-autobahn.git
+Vcs-Browser: https://anonscm.debian.org/gitweb/?p=openstack/python-autobahn.git
+Vcs-Git: https://anonscm.debian.org/git/openstack/python-autobahn.git
 Homepage: http://autobahn.ws/python
 
 Package: python-autobahn
