@@ -1,3 +1,9 @@
+python-autobahn (0.10.3+dfsg1-6) UNRELEASED; urgency=medium
+
+  * d/rules: Changed UPSTREAM_GIT protocol to https
+
+ -- Ondřej Nový <novy@ondrej.org>  Thu, 19 May 2016 21:09:50 +0200
+
 python-autobahn (0.10.3+dfsg1-5) unstable; urgency=medium
 
   * Stop using py.test-X.Y (Closes: #814846).
