@@ -1,6 +1,6 @@
 Format: http://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: Autobahn
-Source: git://github.com/tavendo/AutobahnPython.git
+Source: https://github.com/tavendo/AutobahnPython
 
 Files: *
 Copyright: 2011-2012 Tavendo GmbH <autobahnws@googlegroups.com>
