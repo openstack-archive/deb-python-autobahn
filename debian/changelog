@@ -1,9 +1,13 @@
-python-autobahn (0.10.3+dfsg1-6) UNRELEASED; urgency=medium
+python-autobahn (0.10.3+dfsg1-6) unstable; urgency=medium
 
+  [ Ondřej Nový ]
   * d/rules: Changed UPSTREAM_GIT protocol to https
   * d/copyright: Changed source URL to https protocol
 
- -- Ondřej Nový <novy@ondrej.org>  Thu, 19 May 2016 21:09:50 +0200
+  [ Thomas Goirand ]
+  * Added Python3 support (Closes: #822186).
+
+ -- Thomas Goirand <zigo@debian.org>  Fri, 20 May 2016 13:21:58 +0000
 
 python-autobahn (0.10.3+dfsg1-5) unstable; urgency=medium
 

@@ -20,14 +20,14 @@ Build-Depends-Indep: python-concurrent.futures (>= 2.1.5),
                      python-twisted (>= 11.1),
                      python-txaio (>= 1.0.0),
                      python-zope.interface (>= 3.6),
-#                     python3-lz4 (>= 0.2.1),
-#                     python3-msgpack (>= 0.4.0),
-#                     python3-pytest (>= 2.6.4),
-#                     python3-six,
-#                     python3-snappy (>= 0.5),
-#                     python3-twisted (>= 11.1),
-#                     python3-txaio (>= 1.0.0),
-#                     python3-zope.interface (>= 3.6),
+                     python3-lz4 (>= 0.2.1),
+                     python3-msgpack (>= 0.4.0),
+                     python3-pytest (>= 2.6.4),
+                     python3-six,
+                     python3-snappy (>= 0.5),
+                     python3-twisted (>= 11.1),
+                     python3-txaio (>= 1.0.0),
+                     python3-zope.interface (>= 3.6),
 Standards-Version: 3.9.6
 Vcs-Browser: https://anonscm.debian.org/gitweb/?p=openstack/python-autobahn.git
 Vcs-Git: https://anonscm.debian.org/git/openstack/python-autobahn.git
@@ -58,3 +58,28 @@ Description: WebSocket client and server library, WAMP framework - Python 2.x
  WebSocket.
  .
  This package contains the Python 2.x module.
+
+Package: python3-autobahn
+Architecture: all
+Depends: python3-lz4 (>= 0.2.1),
+         python3-msgpack (>= 0.4.0),
+         python3-six,
+         python3-snappy (>= 0.5),
+         python3-trollius (>= 0.1.2),
+         python3-twisted (>= 11.1),
+         python3-txaio (>= 1.0.0),
+         python3-zope.interface (>= 3.6),
+         ${misc:Depends},
+         ${python3:Depends},
+Description: WebSocket client and server library, WAMP framework - Python 3.x
+ Autobahn|Python is a networking library that is part of the Autobahn project
+ and provides implementations of:
+  * The WebSocket Protocol
+  * The Web Application Messaging Protocol (WAMP)
+ for Twisted and asyncio, on Python 2 & 3 and for writing servers and clients.
+ .
+ WebSocket allows bidirectional real-time messaging on the Web and WAMP adds
+ asynchronous Remote Procedure Calls and Publish & Subscribe on top of
+ WebSocket.
+ .
+ This package contains the Python 3.x module.
