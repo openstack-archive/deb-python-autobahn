@@ -7,6 +7,7 @@ python-autobahn (0.10.3+dfsg1-6) unstable; urgency=medium
   [ Thomas Goirand ]
   * Added Python3 support (Closes: #822186).
   * Standards-Version is now 3.9.8 (no change).
+  * Fix debian/copyright after upstream relicensed to Expat.
 
  -- Thomas Goirand <zigo@debian.org>  Fri, 20 May 2016 13:21:58 +0000
 
