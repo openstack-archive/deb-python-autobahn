@@ -1,3 +1,9 @@
+python-autobahn (0.10.3+dfsg1-7) UNRELEASED; urgency=medium
+
+  * Added missing build-depends-indep: python3-mock (Closes: #825166).
+
+ -- Thomas Goirand <zigo@debian.org>  Tue, 24 May 2016 15:26:55 +0200
+
 python-autobahn (0.10.3+dfsg1-6) unstable; urgency=medium
 
   [ Ondřej Nový ]
