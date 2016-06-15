@@ -26,8 +26,7 @@
 
 from __future__ import absolute_import
 
-# from twisted.trial import unittest
-import unittest
+import unittest2 as unittest
 
 from autobahn.wamp import message
 from autobahn.wamp import role
@@ -66,7 +65,7 @@ def generate_test_messages():
         message.Published(123456, 789123),
         message.Publish(123456, u'com.myapp.topic1'),
         message.Publish(123456, u'com.myapp.topic1', args=[1, 2, 3], kwargs={u'foo': 23, u'bar': u'hello'}),
-        message.Publish(123456, u'com.myapp.topic1', exclude_me=False, exclude=[300], eligible=[100, 200, 300], disclose_me=True),
+        message.Publish(123456, u'com.myapp.topic1', exclude_me=False, exclude=[300], eligible=[100, 200, 300]),
         message.Unsubscribed(123456),
         message.Unsubscribe(123456, 789123),
         message.Subscribed(123456, 789123),
@@ -88,15 +87,28 @@ class TestSerializer(unittest.TestCase):
         self.serializers.append(serializer.JsonSerializer())
         self.serializers.append(serializer.JsonSerializer(batched=True))
 
-        # MsgPack serializers are optional
+        # MsgPack serializer is optional
         if hasattr(serializer, 'MsgPackSerializer'):
             self.serializers.append(serializer.MsgPackSerializer())
             self.serializers.append(serializer.MsgPackSerializer(batched=True))
 
-    def test_roundtrip(self):
-        for msg in generate_test_messages():
-            for ser in self.serializers:
+        # CBOR serializer is optional
+        if hasattr(serializer, 'CBORSerializer'):
+            self.serializers.append(serializer.CBORSerializer())
+            self.serializers.append(serializer.CBORSerializer(batched=True))
 
+        # UBJSON serializer is optional
+        if hasattr(serializer, 'UBJSONSerializer'):
+            self.serializers.append(serializer.UBJSONSerializer())
+            self.serializers.append(serializer.UBJSONSerializer(batched=True))
+
+    def test_roundtrip(self):
+        msgs = generate_test_messages()
+
+        print("\n")
+        for ser in self.serializers:
+            print("Testing WAMP serializer <{}>".format(ser.SERIALIZER_ID))
+            for msg in msgs:
                 # serialize message
                 payload, binary = ser.serialize(msg)
 
@@ -105,6 +117,7 @@ class TestSerializer(unittest.TestCase):
 
                 # must be equal: message roundtrips via the serializer
                 self.assertEqual([msg], msg2)
+        print("")
 
     def test_caching(self):
         for msg in generate_test_messages():
@@ -124,7 +137,3 @@ class TestSerializer(unittest.TestCase):
                 # serialization is gone
                 msg.uncache()
                 self.assertFalse(ser._serializer in msg._serialized)
-
-
-if __name__ == '__main__':
-    unittest.main()

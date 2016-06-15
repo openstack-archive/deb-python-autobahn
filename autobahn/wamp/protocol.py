@@ -26,225 +26,41 @@
 
 from __future__ import absolute_import
 
-import traceback
-import inspect
 import six
-from six import StringIO
+import txaio
+import inspect
 
-from autobahn.wamp.interfaces import ISession, \
-    IPublication, \
-    IPublisher, \
-    ISubscription, \
-    ISubscriber, \
-    ICaller, \
-    IRegistration, \
-    ITransportHandler
-
-from autobahn import util
 from autobahn import wamp
+from autobahn.util import IdGenerator, ObservableMixin
 from autobahn.wamp import uri
 from autobahn.wamp import message
 from autobahn.wamp import types
 from autobahn.wamp import role
 from autobahn.wamp import exception
 from autobahn.wamp.exception import ApplicationError, ProtocolError, SessionNotReady, SerializationError
+from autobahn.wamp.interfaces import IApplicationSession  # noqa
 from autobahn.wamp.types import SessionDetails
-
-import txaio
+from autobahn.wamp.cryptobox import EncryptedPayload
+from autobahn.wamp.request import \
+    Publication, \
+    Subscription, \
+    Handler, \
+    Registration, \
+    Endpoint, \
+    PublishRequest, \
+    SubscribeRequest, \
+    UnsubscribeRequest, \
+    CallRequest, \
+    InvocationRequest, \
+    RegisterRequest, \
+    UnregisterRequest
 
 
 def is_method_or_function(f):
     return inspect.ismethod(f) or inspect.isfunction(f)
 
 
-class Request(object):
-    """
-    Object representing an outstanding request, such as for subscribe/unsubscribe,
-    register/unregister or call/publish.
-    """
-
-    def __init__(self, request_id, on_reply):
-        self.request_id = request_id
-        self.on_reply = on_reply
-
-
-class InvocationRequest(Request):
-    """
-    Object representing an outstanding request to invoke an endpoint.
-    """
-
-
-class CallRequest(Request):
-    """
-    Object representing an outstanding request to call a procedure.
-    """
-
-    def __init__(self, request_id, on_reply, options):
-        Request.__init__(self, request_id, on_reply)
-        self.options = options
-
-
-class PublishRequest(Request):
-    """
-    Object representing an outstanding request to publish (acknowledged) an event.
-    """
-
-
-class SubscribeRequest(Request):
-    """
-    Object representing an outstanding request to subscribe to a topic.
-    """
-
-    def __init__(self, request_id, on_reply, handler):
-        Request.__init__(self, request_id, on_reply)
-        self.handler = handler
-
-
-class UnsubscribeRequest(Request):
-    """
-    Object representing an outstanding request to unsubscribe a subscription.
-    """
-
-    def __init__(self, request_id, on_reply, subscription_id):
-        Request.__init__(self, request_id, on_reply)
-        self.subscription_id = subscription_id
-
-
-class RegisterRequest(Request):
-    """
-    Object representing an outstanding request to register a procedure.
-    """
-
-    def __init__(self, request_id, on_reply, procedure, endpoint):
-        Request.__init__(self, request_id, on_reply)
-        self.procedure = procedure
-        self.endpoint = endpoint
-
-
-class UnregisterRequest(Request):
-    """
-    Object representing an outstanding request to unregister a registration.
-    """
-
-    def __init__(self, request_id, on_reply, registration_id):
-        Request.__init__(self, request_id, on_reply)
-        self.registration_id = registration_id
-
-
-class Subscription(object):
-    """
-    Object representing a handler subscription.
-
-    This class implements :class:`autobahn.wamp.interfaces.ISubscription`.
-    """
-    def __init__(self, subscription_id, session, handler):
-        """
-        """
-        self.id = subscription_id
-        self.active = True
-        self.session = session
-        self.handler = handler
-
-    def unsubscribe(self):
-        """
-        Implements :func:`autobahn.wamp.interfaces.ISubscription.unsubscribe`
-        """
-        if self.active:
-            return self.session._unsubscribe(self)
-        else:
-            raise Exception("subscription no longer active")
-
-    def __str__(self):
-        return "Subscription(id={0}, is_active={1})".format(self.id, self.active)
-
-
-ISubscription.register(Subscription)
-
-
-class Handler(object):
-    """
-    Object representing an event handler attached to a subscription.
-    """
-
-    def __init__(self, fn, obj=None, details_arg=None):
-        """
-
-        :param fn: The event handler function to be called.
-        :type fn: callable
-        :param obj: The (optional) object upon which to call the function.
-        :type obj: obj or None
-        :param details_arg: The keyword argument under which event details should be provided.
-        :type details_arg: str or None
-        """
-        self.fn = fn
-        self.obj = obj
-        self.details_arg = details_arg
-
-
-class Publication(object):
-    """
-    Object representing a publication (feedback from publishing an event when doing
-    an acknowledged publish).
-
-    This class implements :class:`autobahn.wamp.interfaces.IPublication`.
-    """
-    def __init__(self, publication_id):
-        self.id = publication_id
-
-    def __str__(self):
-        return "Publication(id={0})".format(self.id)
-
-
-IPublication.register(Publication)
-
-
-class Registration(object):
-    """
-    Object representing a registration.
-
-    This class implements :class:`autobahn.wamp.interfaces.IRegistration`.
-    """
-    def __init__(self, session, registration_id, procedure, endpoint):
-        self.id = registration_id
-        self.active = True
-        self.session = session
-        self.procedure = procedure
-        self.endpoint = endpoint
-
-    def unregister(self):
-        """
-        Implements :func:`autobahn.wamp.interfaces.IRegistration.unregister`
-        """
-        if self.active:
-            return self.session._unregister(self)
-        else:
-            raise Exception("registration no longer active")
-
-
-IRegistration.register(Registration)
-
-
-class Endpoint(object):
-    """
-    Object representing an procedure endpoint attached to a registration.
-    """
-
-    def __init__(self, fn, obj=None, details_arg=None):
-        """
-
-        :param fn: The endpoint procedure to be called.
-        :type fn: callable
-        :param obj: The (optional) object upon which to call the function.
-        :type obj: obj or None
-        :param details_arg: The keyword argument under which call details should be provided.
-        :type details_arg: str or None
-        """
-        self.fn = fn
-        self.obj = obj
-        self.details_arg = details_arg
-
-
-class BaseSession(object):
+class BaseSession(ObservableMixin):
     """
     WAMP session base class.
 
@@ -255,13 +71,15 @@ class BaseSession(object):
         """
 
         """
-        # this is for library level debugging
-        self.debug = False
-
-        # this is for app level debugging. exceptions raised in user code
-        # will get logged (that is, when invoking remoted procedures or
-        # when invoking event handlers)
-        self.debug_app = False
+        self.set_valid_events(
+            valid_events=[
+                'join',         # right before onJoin runs
+                'leave',        # after onLeave has run
+                'ready',        # after onJoin and all 'join' listeners have completed
+                'connect',      # right before onConnect
+                'disconnect',   # right after onDisconnect
+            ]
+        )
 
         # this is for marshalling traceback from exceptions thrown in user
         # code within WAMP error messages (that is, when invoking remoted
@@ -282,25 +100,11 @@ class BaseSession(object):
         self._authmethod = None
         self._authprovider = None
 
-    def onConnect(self):
-        """
-        Implements :func:`autobahn.wamp.interfaces.ISession.onConnect`
-        """
+        # end-to-end encryption keyring
+        self._keyring = None
 
-    def onJoin(self, details):
-        """
-        Implements :func:`autobahn.wamp.interfaces.ISession.onJoin`
-        """
-
-    def onLeave(self, details):
-        """
-        Implements :func:`autobahn.wamp.interfaces.ISession.onLeave`
-        """
-
-    def onDisconnect(self):
-        """
-        Implements :func:`autobahn.wamp.interfaces.ISession.onDisconnect`
-        """
+        # generator for WAMP request IDs
+        self._request_id_gen = IdGenerator()
 
     def define(self, exception, error=None):
         """
@@ -315,7 +119,7 @@ class BaseSession(object):
             self._ecls_to_uri_pat[exception] = [uri.Pattern(six.u(error), uri.Pattern.URI_TARGET_HANDLER)]
             self._uri_to_ecls[six.u(error)] = exception
 
-    def _message_from_exception(self, request_type, request, exc, tb=None):
+    def _message_from_exception(self, request_type, request, exc, tb=None, enc_algo=None):
         """
         Create a WAMP error message from an exception.
 
@@ -328,6 +132,8 @@ class BaseSession(object):
         :param tb: Optional traceback. If present, it'll be included with the WAMP error message.
         :type tb: list or None
         """
+        assert(enc_algo is None or enc_algo == message.PAYLOAD_ENC_CRYPTO_BOX)
+
         args = None
         if hasattr(exc, 'args'):
             args = list(exc.args)  # make sure tuples are made into lists
@@ -350,7 +156,24 @@ class BaseSession(object):
             else:
                 error = u"wamp.error.runtime_error"
 
-        msg = message.Error(request_type, request, error, args, kwargs)
+        encrypted_payload = None
+        if self._keyring:
+            encrypted_payload = self._keyring.encrypt(False, error, args, kwargs)
+
+        if encrypted_payload:
+            msg = message.Error(request_type,
+                                request,
+                                error,
+                                payload=encrypted_payload.payload,
+                                enc_algo=encrypted_payload.algo,
+                                enc_key=encrypted_payload.pkey,
+                                enc_serializer=encrypted_payload.serializer)
+        else:
+            msg = message.Error(request_type,
+                                request,
+                                error,
+                                args,
+                                kwargs)
 
         return msg
 
@@ -367,6 +190,40 @@ class BaseSession(object):
         # 2. extract additional args/kwargs from error URI
 
         exc = None
+        enc_err = None
+
+        if msg.enc_algo == message.PAYLOAD_ENC_CRYPTO_BOX:
+
+            if not self._keyring:
+                log_msg = u"received encrypted payload, but no keyring active"
+                self.log.warn(log_msg)
+                enc_err = ApplicationError(ApplicationError.ENC_NO_KEYRING_ACTIVE, log_msg, enc_algo=msg.enc_algo)
+            else:
+                try:
+                    encrypted_payload = EncryptedPayload(msg.enc_algo, msg.enc_key, msg.enc_serializer, msg.payload)
+                    decrypted_error, msg.args, msg.kwargs = self._keyring.decrypt(True, msg.error, encrypted_payload)
+                except Exception as e:
+                    self.log.warn("failed to decrypt application payload 1: {err}", err=e)
+                    enc_err = ApplicationError(
+                        ApplicationError.ENC_DECRYPT_ERROR,
+                        u"failed to decrypt application payload 1: {}".format(e),
+                        enc_algo=msg.enc_algo,
+                    )
+                else:
+                    if msg.error != decrypted_error:
+                        self.log.warn(
+                            u"URI within encrypted payload ('{decrypted_error}') does not match the envelope ('{error}')",
+                            decrypted_error=decrypted_error,
+                            error=msg.error,
+                        )
+                        enc_err = ApplicationError(
+                            ApplicationError.ENC_TRUSTED_URI_MISMATCH,
+                            u"URI within encrypted payload ('{}') does not match the envelope ('{}')".format(decrypted_error, msg.error),
+                            enc_algo=msg.enc_algo,
+                        )
+
+        if enc_err:
+            return enc_err
 
         if msg.error in self._uri_to_ecls:
             ecls = self._uri_to_ecls[msg.error]
@@ -384,9 +241,12 @@ class BaseSession(object):
                         exc = ecls(*msg.args)
                     else:
                         exc = ecls()
-            except Exception as e:
+            except Exception:
                 try:
-                    self.onUserError(e, "While re-constructing exception")
+                    self.onUserError(
+                        txaio.create_failure(),
+                        "While re-constructing exception",
+                    )
                 except:
                     pass
 
@@ -403,22 +263,18 @@ class BaseSession(object):
                 else:
                     exc = exception.ApplicationError(msg.error)
 
+        if hasattr(exc, 'enc_algo'):
+            exc.enc_algo = msg.enc_algo
+
         return exc
-
-
-ISession.register(BaseSession)
 
 
 class ApplicationSession(BaseSession):
     """
-    WAMP endpoint session. This class implements
-
-    * :class:`autobahn.wamp.interfaces.IPublisher`
-    * :class:`autobahn.wamp.interfaces.ISubscriber`
-    * :class:`autobahn.wamp.interfaces.ICaller`
-    * :class:`autobahn.wamp.interfaces.ICallee`
-    * :class:`autobahn.wamp.interfaces.ITransportHandler`
+    WAMP endpoint session.
     """
+
+    log = txaio.make_logger()
 
     def __init__(self, config=None):
         """
@@ -431,7 +287,6 @@ class ApplicationSession(BaseSession):
         self._session_id = None
         self._realm = None
 
-        self._session_id = None
         self._goodbye_sent = False
         self._transport_is_closing = False
 
@@ -452,16 +307,26 @@ class ApplicationSession(BaseSession):
         # incoming invocations
         self._invocations = {}
 
+    def set_keyring(self, keyring):
+        """
+        """
+        self._keyring = keyring
+
     def onOpen(self, transport):
         """
         Implements :func:`autobahn.wamp.interfaces.ITransportHandler.onOpen`
         """
         self._transport = transport
-        d = txaio.as_future(self.onConnect)
-
-        def _error(e):
-            return self._swallow_error(e, "While firing onConnect")
-        txaio.add_callbacks(d, None, _error)
+        d = self.fire('connect', self, transport)
+        txaio.add_callbacks(
+            d, None,
+            lambda fail: self._swallow_error(fail, "While notifying 'connect'")
+        )
+        txaio.add_callbacks(
+            d,
+            lambda _: txaio.as_future(self.onConnect),
+            None,
+        )
 
     def onConnect(self):
         """
@@ -469,22 +334,30 @@ class ApplicationSession(BaseSession):
         """
         self.join(self.config.realm)
 
-    def join(self, realm, authmethods=None, authid=None):
+    def join(self, realm, authmethods=None, authid=None, authrole=None, authextra=None):
         """
         Implements :func:`autobahn.wamp.interfaces.ISession.join`
         """
+        # FIXME
         if six.PY2 and type(realm) == str:
             realm = six.u(realm)
         if six.PY2 and type(authid) == str:
             authid = six.u(authid)
+        if six.PY2 and type(authrole) == str:
+            authrole = six.u(authrole)
 
         if self._session_id:
             raise Exception("already joined")
 
+        # store the realm requested by client, though this might be overwritten later,
+        # when realm redirection kicks in
+        self._realm = realm
+
+        # closing handshake state
         self._goodbye_sent = False
 
-        msg = message.Hello(realm, role.DEFAULT_CLIENT_ROLES, authmethods, authid)
-        self._realm = realm
+        # send HELLO message to router
+        msg = message.Hello(realm, role.DEFAULT_CLIENT_ROLES, authmethods, authid, authrole, authextra)
         self._transport.send(msg)
 
     def disconnect(self):
@@ -493,11 +366,20 @@ class ApplicationSession(BaseSession):
         """
         if self._transport:
             self._transport.close()
-        else:
-            # XXX or shall we just ignore this?
-            raise RuntimeError("No transport, but disconnect() called.")
 
-    def onUserError(self, e, msg):
+    def is_connected(self):
+        """
+        Implements :func:`autobahn.wamp.interfaces.ISession.is_connected`
+        """
+        return self._transport is not None
+
+    def is_attached(self):
+        """
+        Implements :func:`autobahn.wamp.interfaces.ISession.is_attached`
+        """
+        return self._session_id is not None
+
+    def onUserError(self, fail, msg):
         """
         This is called when we try to fire a callback, but get an
         exception from user code -- for example, a registered publish
@@ -508,13 +390,21 @@ class ApplicationSession(BaseSession):
         provide logging if they prefer. The Twisted implemention does
         this. (See :class:`autobahn.twisted.wamp.ApplicationSession`)
 
-        :param e: the Exception we caught.
+        :param fail: instance implementing txaio.IFailedFuture
 
         :param msg: an informative message from the library. It is
             suggested you log this immediately after the exception.
         """
-        traceback.print_exc()
-        print(msg)
+        if isinstance(fail.value, exception.ApplicationError):
+            # silence on errors raised explicitly from the app
+            # previous code: self.log.error(fail.value.error_message())
+            pass
+        else:
+            self.log.error(
+                u'{msg}: {traceback}',
+                msg=msg,
+                traceback=txaio.failure_format_traceback(fail),
+            )
 
     def _swallow_error(self, fail, msg):
         '''
@@ -528,29 +418,65 @@ class ApplicationSession(BaseSession):
         chain for a Deferred/coroutine that will make it out to user
         code.
         '''
-        # print("_swallow_error", typ, exc, tb)
         try:
-            self.onUserError(fail.value, msg)
-        except:
-            pass
+            self.onUserError(fail, msg)
+        except Exception:
+            self.log.error(
+                "Internal error: {tb}",
+                tb=txaio.failure_format_traceback(txaio.create_failure()),
+            )
         return None
 
     def onMessage(self, msg):
         """
         Implements :func:`autobahn.wamp.interfaces.ITransportHandler.onMessage`
         """
+
         if self._session_id is None:
 
             # the first message must be WELCOME, ABORT or CHALLENGE ..
             if isinstance(msg, message.Welcome):
+
+                if msg.realm:
+                    self._realm = msg.realm
+
                 self._session_id = msg.session
 
-                details = SessionDetails(self._realm, self._session_id, msg.authid, msg.authrole, msg.authmethod)
-                d = txaio.as_future(self.onJoin, details)
-
-                def _error(e):
-                    return self._swallow_error(e, "While firing onJoin")
-                txaio.add_callbacks(d, None, _error)
+                details = SessionDetails(self._realm, self._session_id, msg.authid, msg.authrole, msg.authmethod, msg.authprovider, msg.authextra)
+                # firing 'join' *before* running onJoin, so that the
+                # idiom where you "do stuff" in onJoin -- possibly
+                # including self.leave() -- works properly. Besides,
+                # there's "ready" that fires after 'join' and onJoin
+                # have all completed...
+                d = self.fire('join', self, details)
+                # add a logging errback first, which will ignore any
+                # errors from fire()
+                txaio.add_callbacks(
+                    d, None,
+                    lambda e: self._swallow_error(e, "While notifying 'join'")
+                )
+                # this should run regardless
+                txaio.add_callbacks(
+                    d,
+                    lambda _: txaio.as_future(self.onJoin, details),
+                    None
+                )
+                # ignore any errors from onJoin (XXX or, should that be fatal?)
+                txaio.add_callbacks(
+                    d, None,
+                    lambda e: self._swallow_error(e, "While firing onJoin")
+                )
+                # this instance is now "ready"...
+                txaio.add_callbacks(
+                    d,
+                    lambda _: self.fire('ready', self),
+                    None
+                )
+                # ignore any errors from 'ready'
+                txaio.add_callbacks(
+                    d, None,
+                    lambda e: self._swallow_error(e, "While notifying 'ready'")
+                )
 
             elif isinstance(msg, message.Abort):
 
@@ -558,9 +484,14 @@ class ApplicationSession(BaseSession):
                 details = types.CloseDetails(msg.reason, msg.message)
                 d = txaio.as_future(self.onLeave, details)
 
+                def success(arg):
+                    # XXX also: handle async
+                    self.fire('leave', self, details)
+                    return arg
+
                 def _error(e):
                     return self._swallow_error(e, "While firing onLeave")
-                txaio.add_callbacks(d, None, _error)
+                txaio.add_callbacks(d, success, _error)
 
             elif isinstance(msg, message.Challenge):
 
@@ -568,19 +499,31 @@ class ApplicationSession(BaseSession):
                 d = txaio.as_future(self.onChallenge, challenge)
 
                 def success(signature):
+                    if signature is None:
+                        raise Exception('onChallenge user callback did not return a signature')
+                    if type(signature) == six.binary_type:
+                        signature = signature.decode('utf8')
+                    if type(signature) != six.text_type:
+                        raise Exception('signature must be unicode (was {})'.format(type(signature)))
                     reply = message.Authenticate(signature)
                     self._transport.send(reply)
 
                 def error(err):
+                    self.onUserError(err, "Authentication failed")
                     reply = message.Abort(u"wamp.error.cannot_authenticate", u"{0}".format(err.value))
                     self._transport.send(reply)
                     # fire callback and close the transport
                     details = types.CloseDetails(reply.reason, reply.message)
                     d = txaio.as_future(self.onLeave, details)
 
+                    def success(arg):
+                        # XXX also: handle async
+                        self.fire('leave', self, details)
+                        return arg
+
                     def _error(e):
                         return self._swallow_error(e, "While firing onLeave")
-                    txaio.add_callbacks(d, None, _error)
+                    txaio.add_callbacks(d, success, _error)
                     # switching to the callback chain, effectively
                     # cancelling error (which we've now handled)
                     return d
@@ -604,10 +547,15 @@ class ApplicationSession(BaseSession):
                 details = types.CloseDetails(msg.reason, msg.message)
                 d = txaio.as_future(self.onLeave, details)
 
+                def success(arg):
+                    # XXX also: handle async
+                    self.fire('leave', self, details)
+                    return arg
+
                 def _error(e):
                     errmsg = 'While firing onLeave for reason "{0}" and message "{1}"'.format(msg.reason, msg.message)
                     return self._swallow_error(e, errmsg)
-                txaio.add_callbacks(d, None, _error)
+                txaio.add_callbacks(d, success, _error)
 
             elif isinstance(msg, message.Event):
 
@@ -617,24 +565,37 @@ class ApplicationSession(BaseSession):
                     for subscription in self._subscriptions[msg.subscription]:
 
                         handler = subscription.handler
+                        topic = msg.topic or subscription.topic
+
+                        if msg.enc_algo == message.PAYLOAD_ENC_CRYPTO_BOX:
+                            # FIXME: behavior in error cases (no keyring, decrypt issues, URI mismatch, ..)
+                            if not self._keyring:
+                                self.log.warn("received encrypted payload, but no keyring active - ignoring encrypted payload!")
+                            else:
+                                try:
+                                    encrypted_payload = EncryptedPayload(msg.enc_algo, msg.enc_key, msg.enc_serializer, msg.payload)
+                                    decrypted_topic, msg.args, msg.kwargs = self._keyring.decrypt(False, topic, encrypted_payload)
+                                except Exception as e:
+                                    self.log.warn("failed to decrypt application payload: {error}", error=e)
+                                else:
+                                    if topic != decrypted_topic:
+                                        self.log.warn("envelope topic URI does not match encrypted one")
 
                         invoke_args = (handler.obj,) if handler.obj else tuple()
                         if msg.args:
                             invoke_args = invoke_args + tuple(msg.args)
-
                         invoke_kwargs = msg.kwargs if msg.kwargs else dict()
-                        if handler.details_arg:
-                            invoke_kwargs[handler.details_arg] = types.EventDetails(publication=msg.publication, publisher=msg.publisher, topic=msg.topic)
 
-                        try:
-                            handler.fn(*invoke_args, **invoke_kwargs)
-                        except Exception as e:
-                            msg = 'While firing {0} subscribed under {1}.'.format(
+                        if handler.details_arg:
+                            invoke_kwargs[handler.details_arg] = types.EventDetails(publication=msg.publication, publisher=msg.publisher, publisher_authid=msg.publisher_authid, publisher_authrole=msg.publisher_authrole, topic=topic, enc_algo=msg.enc_algo)
+
+                        def _error(e):
+                            errmsg = 'While firing {0} subscribed under {1}.'.format(
                                 handler.fn, msg.subscription)
-                            try:
-                                self.onUserError(e, msg)
-                            except:
-                                pass
+                            return self._swallow_error(e, errmsg)
+
+                        future = txaio.as_future(handler.fn, *invoke_args, **invoke_kwargs)
+                        txaio.add_callbacks(future, None, _error)
 
                 else:
                     raise ProtocolError("EVENT received for non-subscribed subscription ID {0}".format(msg.subscription))
@@ -647,7 +608,7 @@ class ApplicationSession(BaseSession):
                     publish_request = self._publish_reqs.pop(msg.request)
 
                     # create a new publication object
-                    publication = Publication(msg.publication)
+                    publication = Publication(msg.publication, was_encrypted=publish_request.was_encrypted)
 
                     # resolve deferred/future for publishing successfully
                     txaio.resolve(publish_request.on_reply, publication)
@@ -665,7 +626,7 @@ class ApplicationSession(BaseSession):
                     if msg.subscription not in self._subscriptions:
                         self._subscriptions[msg.subscription] = []
 
-                    subscription = Subscription(msg.subscription, self, request.handler)
+                    subscription = Subscription(msg.subscription, request.topic, self, request.handler)
 
                     # add handler to existing subscription
                     self._subscriptions[msg.subscription].append(subscription)
@@ -697,48 +658,87 @@ class ApplicationSession(BaseSession):
 
                 if msg.request in self._call_reqs:
 
-                    if msg.progress:
+                    call_request = self._call_reqs[msg.request]
+                    proc = call_request.procedure
+                    enc_err = None
 
-                        # progressive result
-                        call_request = self._call_reqs[msg.request]
-                        if call_request.options.on_progress:
-                            kw = msg.kwargs or dict()
-                            args = msg.args or tuple()
-                            try:
-                                # XXX what if on_progress returns a Deferred/Future?
-                                call_request.options.on_progress(*args, **kw)
-                            except Exception as e:
-                                try:
-                                    self.onUserError(e, "While firing on_progress")
-                                except:
-                                    pass
+                    if msg.enc_algo == message.PAYLOAD_ENC_CRYPTO_BOX:
 
+                        if not self._keyring:
+                            log_msg = u"received encrypted payload, but no keyring active"
+                            self.log.warn(log_msg)
+                            enc_err = ApplicationError(ApplicationError.ENC_NO_KEYRING_ACTIVE, log_msg)
                         else:
-                            # silently ignore progressive results
-                            pass
+                            try:
+                                encrypted_payload = EncryptedPayload(msg.enc_algo, msg.enc_key, msg.enc_serializer, msg.payload)
+                                decrypted_proc, msg.args, msg.kwargs = self._keyring.decrypt(True, proc, encrypted_payload)
+                            except Exception as e:
+                                self.log.warn(
+                                    "failed to decrypt application payload 1: {err}",
+                                    err=e,
+                                )
+                                enc_err = ApplicationError(
+                                    ApplicationError.ENC_DECRYPT_ERROR,
+                                    u"failed to decrypt application payload 1: {}".format(e),
+                                )
+                            else:
+                                if proc != decrypted_proc:
+                                    self.log.warn(
+                                        "URI within encrypted payload ('{decrypted_proc}') does not match the envelope ('{proc}')",
+                                        decrypted_proc=decrypted_proc,
+                                        proc=proc,
+                                    )
+                                    enc_err = ApplicationError(
+                                        ApplicationError.ENC_TRUSTED_URI_MISMATCH,
+                                        u"URI within encrypted payload ('{}') does not match the envelope ('{}')".format(decrypted_proc, proc),
+                                    )
+
+                    if msg.progress:
+                        # process progressive call result
+
+                        if call_request.options.on_progress:
+                            if enc_err:
+                                self.onUserError(enc_err, "could not deliver progressive call result, because payload decryption failed")
+                            else:
+                                kw = msg.kwargs or dict()
+                                args = msg.args or tuple()
+                                try:
+                                    # XXX what if on_progress returns a Deferred/Future?
+                                    call_request.options.on_progress(*args, **kw)
+                                except Exception:
+                                    try:
+                                        self.onUserError(txaio.create_failure(), "While firing on_progress")
+                                    except:
+                                        pass
 
                     else:
-                        # final result
-                        #
-                        call_request = self._call_reqs.pop(msg.request)
+                        # process final call result
 
+                        # drop original request
+                        del self._call_reqs[msg.request]
+
+                        # user callback that gets fired
                         on_reply = call_request.on_reply
 
-                        if msg.kwargs:
-                            if msg.args:
-                                res = types.CallResult(*msg.args, **msg.kwargs)
-                            else:
-                                res = types.CallResult(**msg.kwargs)
-                            txaio.resolve(on_reply, res)
+                        # above might already have rejected, so we guard ..
+                        if enc_err:
+                            txaio.reject(on_reply, enc_err)
                         else:
-                            if msg.args:
-                                if len(msg.args) > 1:
-                                    res = types.CallResult(*msg.args)
-                                    txaio.resolve(on_reply, res)
+                            if msg.kwargs:
+                                if msg.args:
+                                    res = types.CallResult(*msg.args, **msg.kwargs)
                                 else:
-                                    txaio.resolve(on_reply, msg.args[0])
+                                    res = types.CallResult(**msg.kwargs)
+                                txaio.resolve(on_reply, res)
                             else:
-                                txaio.resolve(on_reply, None)
+                                if msg.args:
+                                    if len(msg.args) > 1:
+                                        res = types.CallResult(*msg.args)
+                                        txaio.resolve(on_reply, res)
+                                    else:
+                                        txaio.resolve(on_reply, msg.args[0])
+                                else:
+                                    txaio.resolve(on_reply, None)
                 else:
                     raise ProtocolError("RESULT received for non-pending request ID {0}".format(msg.request))
 
@@ -756,84 +756,169 @@ class ApplicationSession(BaseSession):
 
                     else:
                         registration = self._registrations[msg.registration]
-
                         endpoint = registration.endpoint
+                        proc = msg.procedure or registration.procedure
+                        enc_err = None
 
-                        if endpoint.obj:
-                            invoke_args = (endpoint.obj,)
+                        if msg.enc_algo == message.PAYLOAD_ENC_CRYPTO_BOX:
+                            if not self._keyring:
+                                log_msg = u"received encrypted INVOCATION payload, but no keyring active"
+                                self.log.warn(log_msg)
+                                enc_err = ApplicationError(ApplicationError.ENC_NO_KEYRING_ACTIVE, log_msg)
+                            else:
+                                try:
+                                    encrypted_payload = EncryptedPayload(msg.enc_algo, msg.enc_key, msg.enc_serializer, msg.payload)
+                                    decrypted_proc, msg.args, msg.kwargs = self._keyring.decrypt(False, proc, encrypted_payload)
+                                except Exception as e:
+                                    self.log.warn(
+                                        "failed to decrypt INVOCATION payload: {err}",
+                                        err=e,
+                                    )
+                                    enc_err = ApplicationError(
+                                        ApplicationError.ENC_DECRYPT_ERROR,
+                                        "failed to decrypt INVOCATION payload: {}".format(e),
+                                    )
+                                else:
+                                    if proc != decrypted_proc:
+                                        self.log.warn(
+                                            "URI within encrypted INVOCATION payload ('{decrypted_proc}') "
+                                            "does not match the envelope ('{proc}')",
+                                            decrypted_proc=decrypted_proc,
+                                            proc=proc,
+                                        )
+                                        enc_err = ApplicationError(
+                                            ApplicationError.ENC_TRUSTED_URI_MISMATCH,
+                                            u"URI within encrypted INVOCATION payload ('{}') does not match the envelope ('{}')".format(decrypted_proc, proc),
+                                        )
+
+                        if enc_err:
+                            # when there was a problem decrypting the INVOCATION payload, we obviously can't invoke
+                            # the endpoint, but return and
+                            reply = self._message_from_exception(message.Invocation.MESSAGE_TYPE, msg.request, enc_err)
+                            self._transport.send(reply)
+
                         else:
-                            invoke_args = tuple()
 
-                        if msg.args:
-                            invoke_args = invoke_args + tuple(msg.args)
-
-                        invoke_kwargs = msg.kwargs if msg.kwargs else dict()
-
-                        if endpoint.details_arg:
-
-                            if msg.receive_progress:
-                                def progress(*args, **kwargs):
-                                    progress_msg = message.Yield(msg.request, args=args, kwargs=kwargs, progress=True)
-                                    self._transport.send(progress_msg)
+                            if endpoint.obj is not None:
+                                invoke_args = (endpoint.obj,)
                             else:
-                                progress = None
+                                invoke_args = tuple()
 
-                            invoke_kwargs[endpoint.details_arg] = types.CallDetails(progress, caller=msg.caller, procedure=msg.procedure)
+                            if msg.args:
+                                invoke_args = invoke_args + tuple(msg.args)
 
-                        on_reply = txaio.as_future(endpoint.fn, *invoke_args, **invoke_kwargs)
+                            invoke_kwargs = msg.kwargs if msg.kwargs else dict()
 
-                        def success(res):
-                            del self._invocations[msg.request]
+                            if endpoint.details_arg:
 
-                            if isinstance(res, types.CallResult):
-                                reply = message.Yield(msg.request, args=res.results, kwargs=res.kwresults)
-                            else:
-                                reply = message.Yield(msg.request, args=[res])
+                                if msg.receive_progress:
 
-                            try:
-                                self._transport.send(reply)
-                            except SerializationError as e:
-                                # the application-level payload returned from the invoked procedure can't be serialized
-                                reply = message.Error(message.Invocation.MESSAGE_TYPE, msg.request, ApplicationError.INVALID_PAYLOAD,
-                                                      args=[u'success return value from invoked procedure "{0}" could not be serialized: {1}'.format(registration.procedure, e)])
-                                self._transport.send(reply)
+                                    def progress(*args, **kwargs):
+                                        encrypted_payload = None
+                                        if msg.enc_algo == message.PAYLOAD_ENC_CRYPTO_BOX:
+                                            if not self._keyring:
+                                                raise Exception(u"trying to send encrypted payload, but no keyring active")
+                                            encrypted_payload = self._keyring.encrypt(False, proc, args, kwargs)
 
-                        def error(err):
-                            errmsg = 'Failure while invoking procedure {0} registered under "{1}".'.format(endpoint.fn, registration.procedure)
-                            try:
-                                self.onUserError(err, errmsg)
-                            except:
-                                pass
-                            formatted_tb = None
-                            if self.traceback_app:
-                                # if asked to marshal the traceback within the WAMP error message, extract it
-                                # noinspection PyCallingNonCallable
-                                tb = StringIO()
-                                err.printTraceback(file=tb)
-                                formatted_tb = tb.getvalue().splitlines()
+                                        if encrypted_payload:
+                                            progress_msg = message.Yield(msg.request,
+                                                                         payload=encrypted_payload.payload,
+                                                                         progress=True,
+                                                                         enc_algo=encrypted_payload.algo,
+                                                                         enc_key=encrypted_payload.pkey,
+                                                                         enc_serializer=encrypted_payload.serializer)
+                                        else:
+                                            progress_msg = message.Yield(msg.request,
+                                                                         args=args,
+                                                                         kwargs=kwargs,
+                                                                         progress=True)
 
-                            del self._invocations[msg.request]
+                                        self._transport.send(progress_msg)
+                                else:
+                                    progress = None
 
-                            if hasattr(err, 'value'):
-                                exc = err.value
-                            else:
-                                exc = err
+                                invoke_kwargs[endpoint.details_arg] = types.CallDetails(progress, caller=msg.caller, caller_authid=msg.caller_authid, caller_authrole=msg.caller_authrole, procedure=proc, enc_algo=msg.enc_algo)
 
-                            reply = self._message_from_exception(message.Invocation.MESSAGE_TYPE, msg.request, exc, formatted_tb)
+                            on_reply = txaio.as_future(endpoint.fn, *invoke_args, **invoke_kwargs)
 
-                            try:
-                                self._transport.send(reply)
-                            except SerializationError as e:
-                                # the application-level payload returned from the invoked procedure can't be serialized
-                                reply = message.Error(message.Invocation.MESSAGE_TYPE, msg.request, ApplicationError.INVALID_PAYLOAD,
-                                                      args=[u'error return value from invoked procedure "{0}" could not be serialized: {1}'.format(registration.procedure, e)])
-                                self._transport.send(reply)
-                            # we have handled the error, so we eat it
-                            return None
+                            def success(res):
+                                del self._invocations[msg.request]
 
-                        self._invocations[msg.request] = InvocationRequest(msg.request, on_reply)
+                                encrypted_payload = None
+                                if msg.enc_algo == message.PAYLOAD_ENC_CRYPTO_BOX:
+                                    if not self._keyring:
+                                        log_msg = u"trying to send encrypted payload, but no keyring active"
+                                        self.log.warn(log_msg)
+                                    else:
+                                        try:
+                                            if isinstance(res, types.CallResult):
+                                                encrypted_payload = self._keyring.encrypt(False, proc, res.results, res.kwresults)
+                                            else:
+                                                encrypted_payload = self._keyring.encrypt(False, proc, [res])
+                                        except Exception as e:
+                                            self.log.warn(
+                                                "failed to encrypt application payload: {err}",
+                                                err=e,
+                                            )
 
-                        txaio.add_callbacks(on_reply, success, error)
+                                if encrypted_payload:
+                                    reply = message.Yield(msg.request,
+                                                          payload=encrypted_payload.payload,
+                                                          enc_algo=encrypted_payload.algo,
+                                                          enc_key=encrypted_payload.pkey,
+                                                          enc_serializer=encrypted_payload.serializer)
+                                else:
+                                    if isinstance(res, types.CallResult):
+                                        reply = message.Yield(msg.request,
+                                                              args=res.results,
+                                                              kwargs=res.kwresults)
+                                    else:
+                                        reply = message.Yield(msg.request,
+                                                              args=[res])
+
+                                try:
+                                    self._transport.send(reply)
+                                except SerializationError as e:
+                                    # the application-level payload returned from the invoked procedure can't be serialized
+                                    reply = message.Error(message.Invocation.MESSAGE_TYPE, msg.request, ApplicationError.INVALID_PAYLOAD,
+                                                          args=[u'success return value from invoked procedure "{0}" could not be serialized: {1}'.format(registration.procedure, e)])
+                                    self._transport.send(reply)
+
+                            def error(err):
+                                del self._invocations[msg.request]
+
+                                errmsg = txaio.failure_message(err)
+
+                                try:
+                                    self.onUserError(err, errmsg)
+                                except:
+                                    pass
+
+                                formatted_tb = None
+                                if self.traceback_app:
+                                    formatted_tb = txaio.failure_format_traceback(err)
+
+                                reply = self._message_from_exception(
+                                    message.Invocation.MESSAGE_TYPE,
+                                    msg.request,
+                                    err.value,
+                                    formatted_tb,
+                                    msg.enc_algo
+                                )
+
+                                try:
+                                    self._transport.send(reply)
+                                except SerializationError as e:
+                                    # the application-level payload returned from the invoked procedure can't be serialized
+                                    reply = message.Error(message.Invocation.MESSAGE_TYPE, msg.request, ApplicationError.INVALID_PAYLOAD,
+                                                          args=[u'error return value from invoked procedure "{0}" could not be serialized: {1}'.format(registration.procedure, e)])
+                                    self._transport.send(reply)
+                                # we have handled the error, so we eat it
+                                return None
+
+                            self._invocations[msg.request] = InvocationRequest(msg.request, on_reply)
+
+                            txaio.add_callbacks(on_reply, success, error)
 
             elif isinstance(msg, message.Interrupt):
 
@@ -843,10 +928,13 @@ class ApplicationSession(BaseSession):
                     # noinspection PyBroadException
                     try:
                         self._invocations[msg.request].cancel()
-                    except Exception as e:
+                    except Exception:
                         # XXX can .cancel() return a Deferred/Future?
                         try:
-                            self.onUserError(e, "While cancelling call.")
+                            self.onUserError(
+                                txaio.create_failure(),
+                                "While cancelling call.",
+                            )
                         except:
                             pass
                     finally:
@@ -934,15 +1022,29 @@ class ApplicationSession(BaseSession):
 
         if self._session_id:
             # fire callback and close the transport
-            d = txaio.as_future(self.onLeave, types.CloseDetails(reason=types.CloseDetails.REASON_TRANSPORT_LOST, message="WAMP transport was lost without closing the session before"))
+            details = types.CloseDetails(
+                reason=types.CloseDetails.REASON_TRANSPORT_LOST,
+                message=(u"WAMP transport was lost without closing the"
+                         u" session before"),
+            )
+            d = txaio.as_future(self.onLeave, details)
+
+            def success(arg):
+                # XXX also: handle async
+                self.fire('leave', self, details)
+                return arg
 
             def _error(e):
                 return self._swallow_error(e, "While firing onLeave")
-            txaio.add_callbacks(d, None, _error)
+            txaio.add_callbacks(d, success, _error)
 
             self._session_id = None
 
         d = txaio.as_future(self.onDisconnect)
+
+        def success(arg):
+            # XXX do we care about returning 'arg' properly?
+            return self.fire('disconnect', self, was_clean=wasClean)
 
         def _error(e):
             return self._swallow_error(e, "While firing onDisconnect")
@@ -963,6 +1065,9 @@ class ApplicationSession(BaseSession):
         """
         Implements :func:`autobahn.wamp.interfaces.ISession.onLeave`
         """
+        if details.reason.startswith('wamp.error.'):
+            self.log.error('{reason}: {wamp_message}', reason=details.reason, wamp_message=details.message)
+
         if self._transport:
             self.disconnect()
         # do we ever call onLeave with a valid transport?
@@ -972,7 +1077,7 @@ class ApplicationSession(BaseSession):
         Implements :func:`autobahn.wamp.interfaces.ISession.leave`
         """
         if not self._session_id:
-            raise Exception("not joined")
+            raise SessionNotReady(u"session hasn't joined a realm")
 
         if not self._goodbye_sent:
             if not reason:
@@ -980,8 +1085,17 @@ class ApplicationSession(BaseSession):
             msg = wamp.message.Goodbye(reason=reason, message=log_message)
             self._transport.send(msg)
             self._goodbye_sent = True
+            # deferred that fires when transport actually hits CLOSED
+            is_closed = self._transport is None or self._transport.is_closed
+            return is_closed
         else:
-            raise SessionNotReady(u"Already requested to close the session")
+            raise SessionNotReady(u"session was alread requested to leave")
+
+    def onDisconnect(self):
+        """
+        Implements :func:`autobahn.wamp.interfaces.ISession.onDisconnect`
+        """
+        pass  # return self.fire('disconnect', self, True)
 
     def publish(self, topic, *args, **kwargs):
         """
@@ -994,19 +1108,49 @@ class ApplicationSession(BaseSession):
         if not self._transport:
             raise exception.TransportLost()
 
-        request_id = util.id()
+        options = kwargs.pop('options', None)
+        if options and not isinstance(options, types.PublishOptions):
+            raise Exception("options must be of type a.w.t.PublishOptions")
 
-        if 'options' in kwargs and isinstance(kwargs['options'], types.PublishOptions):
-            options = kwargs.pop('options')
-            msg = message.Publish(request_id, topic, args=args, kwargs=kwargs, **options.message_attr())
+        request_id = self._request_id_gen.next()
+
+        encrypted_payload = None
+        if self._keyring:
+            encrypted_payload = self._keyring.encrypt(True, topic, args, kwargs)
+
+        if encrypted_payload:
+            if options:
+                msg = message.Publish(request_id,
+                                      topic,
+                                      payload=encrypted_payload.payload,
+                                      enc_algo=encrypted_payload.algo,
+                                      enc_key=encrypted_payload.pkey,
+                                      enc_serializer=encrypted_payload.serializer,
+                                      **options.message_attr())
+            else:
+                msg = message.Publish(request_id,
+                                      topic,
+                                      payload=encrypted_payload.payload,
+                                      enc_algo=encrypted_payload.algo,
+                                      enc_key=encrypted_payload.pkey,
+                                      enc_serializer=encrypted_payload.serializer)
         else:
-            options = None
-            msg = message.Publish(request_id, topic, args=args, kwargs=kwargs)
+            if options:
+                msg = message.Publish(request_id,
+                                      topic,
+                                      args=args,
+                                      kwargs=kwargs,
+                                      **options.message_attr())
+            else:
+                msg = message.Publish(request_id,
+                                      topic,
+                                      args=args,
+                                      kwargs=kwargs)
 
         if options and options.acknowledge:
             # only acknowledged publications expect a reply ..
             on_reply = txaio.create_future()
-            self._publish_reqs[request_id] = PublishRequest(request_id, on_reply)
+            self._publish_reqs[request_id] = PublishRequest(request_id, on_reply, was_encrypted=(encrypted_payload is not None))
         else:
             on_reply = None
 
@@ -1041,10 +1185,10 @@ class ApplicationSession(BaseSession):
             raise exception.TransportLost()
 
         def _subscribe(obj, fn, topic, options):
-            request_id = util.id()
+            request_id = self._request_id_gen.next()
             on_reply = txaio.create_future()
             handler_obj = Handler(fn, obj, options.details_arg if options else None)
-            self._subscribe_reqs[request_id] = SubscribeRequest(request_id, on_reply, handler_obj)
+            self._subscribe_reqs[request_id] = SubscribeRequest(request_id, topic, on_reply, handler_obj)
 
             if options:
                 msg = message.Subscribe(request_id, topic, **options.message_attr())
@@ -1055,7 +1199,6 @@ class ApplicationSession(BaseSession):
             return on_reply
 
         if callable(handler):
-
             # subscribe a single handler
             return _subscribe(None, handler, topic, options)
 
@@ -1066,11 +1209,11 @@ class ApplicationSession(BaseSession):
             for k in inspect.getmembers(handler.__class__, is_method_or_function):
                 proc = k[1]
                 if "_wampuris" in proc.__dict__:
-                    pat = proc.__dict__["_wampuris"][0]
-                    if pat.is_handler():
-                        uri = pat.uri()
-                        subopts = options or pat.subscribe_options()
-                        on_replies.append(_subscribe(handler, proc, uri, subopts))
+                    for pat in proc.__dict__["_wampuris"]:
+                        if pat.is_handler():
+                            uri = pat.uri()
+                            subopts = options or pat.subscribe_options()
+                            on_replies.append(_subscribe(handler, proc, uri, subopts))
 
             # XXX needs coverage
             return txaio.gather(on_replies, consume_exceptions=True)
@@ -1096,7 +1239,7 @@ class ApplicationSession(BaseSession):
 
         if scount == 0:
             # if the last handler was removed, unsubscribe from broker ..
-            request_id = util.id()
+            request_id = self._request_id_gen.next()
 
             on_reply = txaio.create_future()
             self._unsubscribe_reqs[request_id] = UnsubscribeRequest(request_id, on_reply, subscription.id)
@@ -1120,38 +1263,68 @@ class ApplicationSession(BaseSession):
         if not self._transport:
             raise exception.TransportLost()
 
-        request_id = util.id()
+        options = kwargs.pop('options', None)
+        if options and not isinstance(options, types.CallOptions):
+            raise Exception("options must be of type a.w.t.CallOptions")
 
-        if 'options' in kwargs and isinstance(kwargs['options'], types.CallOptions):
-            options = kwargs.pop('options')
-            msg = message.Call(request_id, procedure, args=args, kwargs=kwargs, **options.message_attr())
+        request_id = self._request_id_gen.next()
+
+        encrypted_payload = None
+        if self._keyring:
+            encrypted_payload = self._keyring.encrypt(True, procedure, args, kwargs)
+
+        if encrypted_payload:
+            if options:
+                msg = message.Call(request_id,
+                                   procedure,
+                                   payload=encrypted_payload.payload,
+                                   enc_algo=encrypted_payload.algo,
+                                   enc_key=encrypted_payload.pkey,
+                                   enc_serializer=encrypted_payload.serializer,
+                                   **options.message_attr())
+            else:
+                msg = message.Call(request_id,
+                                   procedure,
+                                   payload=encrypted_payload.payload,
+                                   enc_algo=encrypted_payload.algo,
+                                   enc_key=encrypted_payload.pkey,
+                                   enc_serializer=encrypted_payload.serializer)
         else:
-            options = None
-            msg = message.Call(request_id, procedure, args=args, kwargs=kwargs)
+            if options:
+                msg = message.Call(request_id,
+                                   procedure,
+                                   args=args,
+                                   kwargs=kwargs,
+                                   **options.message_attr())
+            else:
+                msg = message.Call(request_id,
+                                   procedure,
+                                   args=args,
+                                   kwargs=kwargs)
 
-        # FIXME
+        # FIXME: implement call canceling
         # def canceller(_d):
         #   cancel_msg = message.Cancel(request)
         #   self._transport.send(cancel_msg)
         # d = Deferred(canceller)
 
         on_reply = txaio.create_future()
-        self._call_reqs[request_id] = CallRequest(request_id, on_reply, options)
+        self._call_reqs[request_id] = CallRequest(request_id, procedure, on_reply, options)
 
         try:
             # Notes:
             #
             # * this might raise autobahn.wamp.exception.SerializationError
             #   when the user payload cannot be serialized
-            # * we have to setup a PublishRequest() in _publish_reqs _before_
+            # * we have to setup a CallRequest() in _call_reqs _before_
             #   calling transpor.send(), because a mock- or side-by-side transport
             #   will immediately lead on an incoming WAMP message in onMessage()
             #
             self._transport.send(msg)
-        except Exception as e:
+        except:
             if request_id in self._call_reqs:
                 del self._call_reqs[request_id]
-            raise e
+            raise
 
         return on_reply
 
@@ -1169,7 +1342,7 @@ class ApplicationSession(BaseSession):
             raise exception.TransportLost()
 
         def _register(obj, fn, procedure, options):
-            request_id = util.id()
+            request_id = self._request_id_gen.next()
             on_reply = txaio.create_future()
             endpoint_obj = Endpoint(fn, obj, options.details_arg if options else None)
             self._register_reqs[request_id] = RegisterRequest(request_id, on_reply, procedure, endpoint_obj)
@@ -1194,10 +1367,10 @@ class ApplicationSession(BaseSession):
             for k in inspect.getmembers(endpoint.__class__, is_method_or_function):
                 proc = k[1]
                 if "_wampuris" in proc.__dict__:
-                    pat = proc.__dict__["_wampuris"][0]
-                    if pat.is_endpoint():
-                        uri = pat.uri()
-                        on_replies.append(_register(endpoint, proc, uri, options))
+                    for pat in proc.__dict__["_wampuris"]:
+                        if pat.is_endpoint():
+                            uri = pat.uri()
+                            on_replies.append(_register(endpoint, proc, uri, options))
 
             # XXX neds coverage
             return txaio.gather(on_replies, consume_exceptions=True)
@@ -1213,7 +1386,7 @@ class ApplicationSession(BaseSession):
         if not self._transport:
             raise exception.TransportLost()
 
-        request_id = util.id()
+        request_id = self._request_id_gen.next()
 
         on_reply = txaio.create_future()
         self._unregister_reqs[request_id] = UnregisterRequest(request_id, on_reply, registration.id)
@@ -1224,11 +1397,8 @@ class ApplicationSession(BaseSession):
         return on_reply
 
 
-IPublisher.register(ApplicationSession)
-ISubscriber.register(ApplicationSession)
-ICaller.register(ApplicationSession)
-# ICallee.register(ApplicationSession)  # FIXME: ".register" collides with the ABC "register" method
-ITransportHandler.register(ApplicationSession)
+# IApplicationSession.register collides with the abc.ABCMeta.register method
+# IApplicationSession.register(ApplicationSession)
 
 
 class ApplicationSessionFactory(object):

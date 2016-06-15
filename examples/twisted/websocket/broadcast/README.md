@@ -7,7 +7,7 @@ to all connected clients every second.
 
 Clients are provided for AutobahnJS and AutobahnPython.
 
-There is also a companion [example](https://github.com/tavendo/AutobahnAndroid/tree/master/Demo/BroadcastClient) using AutobahnAndroid.
+There is also a companion [example](https://github.com/crossbario/autobahn-android/tree/master/Demo/BroadcastClient) using AutobahnAndroid.
 
 
 Running
@@ -22,10 +22,6 @@ and open
     http://localhost:8080/
 
 in your browser.
-
-To activate debug output on the server, start it
-
-    python server.py debug
 
 To use the Python client, do
 

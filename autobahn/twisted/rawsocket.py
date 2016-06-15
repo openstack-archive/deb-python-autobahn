@@ -26,15 +26,15 @@
 
 from __future__ import absolute_import
 
-import binascii
-
-from twisted.python import log
 from twisted.internet.protocol import Factory
 from twisted.protocols.basic import Int32StringReceiver
 from twisted.internet.error import ConnectionDone
 
-from autobahn.twisted.util import peer2str
+from autobahn.twisted.util import peer2str, transport_channel_id
+from autobahn.util import _LazyHexFormatter
 from autobahn.wamp.exception import ProtocolError, SerializationError, TransportLost
+
+import txaio
 
 __all__ = (
     'WampRawSocketServerProtocol',
@@ -48,10 +48,10 @@ class WampRawSocketProtocol(Int32StringReceiver):
     """
     Base class for Twisted-based WAMP-over-RawSocket protocols.
     """
+    log = txaio.make_logger()
 
     def connectionMade(self):
-        if self.factory.debug:
-            log.msg("WampRawSocketProtocol: connection made")
+        self.log.debug("WampRawSocketProtocol: connection made")
 
         # the peer we are connected to
         #
@@ -91,42 +91,34 @@ class WampRawSocketProtocol(Int32StringReceiver):
             self._session.onOpen(self)
         except Exception as e:
             # Exceptions raised in onOpen are fatal ..
-            if self.factory.debug:
-                log.msg("WampRawSocketProtocol: ApplicationSession constructor / onOpen raised ({0})".format(e))
+            self.log.warn("WampRawSocketProtocol: ApplicationSession constructor / onOpen raised ({err})", err=e)
             self.abort()
         else:
-            if self.factory.debug:
-                log.msg("ApplicationSession started.")
+            self.log.info("ApplicationSession started.")
 
     def connectionLost(self, reason):
-        if self.factory.debug:
-            log.msg("WampRawSocketProtocol: connection lost: reason = '{0}'".format(reason))
+        self.log.info("WampRawSocketProtocol: connection lost: reason = '{reason}'", reason=reason)
         try:
             wasClean = isinstance(reason.value, ConnectionDone)
             self._session.onClose(wasClean)
         except Exception as e:
             # silently ignore exceptions raised here ..
-            if self.factory.debug:
-                log.msg("WampRawSocketProtocol: ApplicationSession.onClose raised ({0})".format(e))
+            self.log.warn("WampRawSocketProtocol: ApplicationSession.onClose raised ({err})", err=e)
         self._session = None
 
     def stringReceived(self, payload):
-        if self.factory.debug:
-            log.msg("WampRawSocketProtocol: RX octets: {0}".format(binascii.hexlify(payload)))
+        self.log.debug("WampRawSocketProtocol: RX octets: {octets}", octets=_LazyHexFormatter(payload))
         try:
             for msg in self._serializer.unserialize(payload):
-                if self.factory.debug:
-                    log.msg("WampRawSocketProtocol: RX WAMP message: {0}".format(msg))
+                self.log.debug("WampRawSocketProtocol: RX WAMP message: {msg}", msg=msg)
                 self._session.onMessage(msg)
 
         except ProtocolError as e:
-            if self.factory.debug:
-                log.msg("WampRawSocketProtocol: WAMP Protocol Error ({0}) - aborting connection".format(e))
+            self.log.warn("WampRawSocketProtocol: WAMP Protocol Error ({err}) - aborting connection", err=e)
             self.abort()
 
         except Exception as e:
-            if self.factory.debug:
-                log.msg("WampRawSocketProtocol: WAMP Internal Error ({0}) - aborting connection".format(e))
+            self.log.warn("WampRawSocketProtocol: WAMP Internal Error ({err}) - aborting connection", err=e)
             self.abort()
 
     def send(self, msg):
@@ -134,8 +126,7 @@ class WampRawSocketProtocol(Int32StringReceiver):
         Implements :func:`autobahn.wamp.interfaces.ITransport.send`
         """
         if self.isOpen():
-            if self.factory.debug:
-                log.msg("WampRawSocketProtocol: TX WAMP message: {0}".format(msg))
+            self.log.debug("WampRawSocketProtocol: TX WAMP message: {msg}", msg=msg)
             try:
                 payload, _ = self._serializer.serialize(msg)
             except Exception as e:
@@ -143,8 +134,7 @@ class WampRawSocketProtocol(Int32StringReceiver):
                 raise SerializationError("WampRawSocketProtocol: unable to serialize WAMP application payload ({0})".format(e))
             else:
                 self.sendString(payload)
-                if self.factory.debug:
-                    log.msg("WampRawSocketProtocol: TX octets: {0}".format(binascii.hexlify(payload)))
+                self.log.debug("WampRawSocketProtocol: TX octets: {octets}", octets=_LazyHexFormatter(payload))
         else:
             raise TransportLost()
 
@@ -192,30 +182,42 @@ class WampRawSocketServerProtocol(WampRawSocketProtocol):
 
             if len(self._handshake_bytes) == 4:
 
-                if self.factory.debug:
-                    log.msg("WampRawSocketProtocol: opening handshake received - {0}".format(binascii.b2a_hex(self._handshake_bytes)))
+                self.log.debug(
+                    "WampRawSocketProtocol: opening handshake received - {octets}",
+                    octets=_LazyHexFormatter(self._handshake_bytes),
+                )
 
-                if ord(self._handshake_bytes[0]) != 0x7f:
-                    if self.factory.debug:
-                        log.msg("WampRawSocketProtocol: invalid magic byte (octet 1) in opening handshake: was 0x{0}, but expected 0x7f".format(binascii.b2a_hex(self._handshake_bytes[0])))
+                if ord(self._handshake_bytes[0:1]) != 0x7f:
+                    self.log.error(
+                        "WampRawSocketProtocol: invalid magic byte (octet 1) in"
+                        " opening handshake: was 0x{magic}, but expected 0x7f",
+                        magic=_LazyHexFormatter(self._handshake_bytes[0]),
+                    )
                     self.abort()
 
                 # peer requests us to send messages of maximum length 2**max_len_exp
                 #
-                self._max_len_send = 2 ** (9 + (ord(self._handshake_bytes[1]) >> 4))
-                if self.factory.debug:
-                    log.msg("WampRawSocketProtocol: client requests us to send out most {} bytes per message".format(self._max_len_send))
+                self._max_len_send = 2 ** (9 + (ord(self._handshake_bytes[1:2]) >> 4))
+                self.log.debug(
+                    "WampRawSocketProtocol: client requests us to send out most {max_bytes} bytes per message",
+                    max_bytes=self._max_len_send,
+                )
 
                 # client wants to speak this serialization format
                 #
-                ser_id = ord(self._handshake_bytes[1]) & 0x0F
+                ser_id = ord(self._handshake_bytes[1:2]) & 0x0F
                 if ser_id in self.factory._serializers:
                     self._serializer = self.factory._serializers[ser_id]
-                    if self.factory.debug:
-                        log.msg("WampRawSocketProtocol: client wants to use serializer {}".format(ser_id))
+                    self.log.debug(
+                        "WampRawSocketProtocol: client wants to use serializer '{serializer}'",
+                        serializer=ser_id,
+                    )
                 else:
-                    if self.factory.debug:
-                        log.msg("WampRawSocketProtocol: opening handshake - no suitable serializer found (client requested {0}, and we have {1})".format(ser_id, self.factory._serializers.keys()))
+                    self.log.debug(
+                        "WampRawSocketProtocol: opening handshake - no suitable serializer found (client requested {serializer}, and we have {serializers}",
+                        serializer=ser_id,
+                        serializers=self.factory._serializers.keys(),
+                    )
                     self.abort()
 
                 # we request the peer to send message of maximum length 2**reply_max_len_exp
@@ -224,7 +226,8 @@ class WampRawSocketServerProtocol(WampRawSocketProtocol):
 
                 # send out handshake reply
                 #
-                reply_octet2 = chr(((reply_max_len_exp - 9) << 4) | self._serializer.RAWSOCKET_SERIALIZER_ID)
+                reply_octet2 = bytes(bytearray([
+                    ((reply_max_len_exp - 9) << 4) | self._serializer.RAWSOCKET_SERIALIZER_ID]))
                 self.transport.write(b'\x7F')       # magic byte
                 self.transport.write(reply_octet2)  # max length / serializer
                 self.transport.write(b'\x00\x00')   # reserved octets
@@ -233,14 +236,22 @@ class WampRawSocketServerProtocol(WampRawSocketProtocol):
 
                 self._on_handshake_complete()
 
-                if self.factory.debug:
-                    log.msg("WampRawSocketProtocol: opening handshake completed", self._serializer)
+                self.log.debug(
+                    "WampRawSocketProtocol: opening handshake completed: {serializer}",
+                    serializer=self._serializer,
+                )
 
             # consume any remaining data received already ..
             #
             data = data[remaining:]
             if data:
                 self.dataReceived(data)
+
+    def get_channel_id(self, channel_id_type=u'tls-unique'):
+        """
+        Implements :func:`autobahn.wamp.interfaces.ITransport.get_channel_id`
+        """
+        return transport_channel_id(self.transport, is_server=True, channel_id_type=channel_id_type)
 
 
 class WampRawSocketClientProtocol(WampRawSocketProtocol):
@@ -258,7 +269,8 @@ class WampRawSocketClientProtocol(WampRawSocketProtocol):
 
         # send out handshake reply
         #
-        request_octet2 = chr(((request_max_len_exp - 9) << 4) | self._serializer.RAWSOCKET_SERIALIZER_ID)
+        request_octet2 = bytes(bytearray([
+            ((request_max_len_exp - 9) << 4) | self._serializer.RAWSOCKET_SERIALIZER_ID]))
         self.transport.write(b'\x7F')         # magic byte
         self.transport.write(request_octet2)  # max length / serializer
         self.transport.write(b'\x00\x00')     # reserved octets
@@ -273,40 +285,57 @@ class WampRawSocketClientProtocol(WampRawSocketProtocol):
 
             if len(self._handshake_bytes) == 4:
 
-                if self.factory.debug:
-                    log.msg("WampRawSocketProtocol: opening handshake received - {0}".format(binascii.b2a_hex(self._handshake_bytes)))
+                self.log.debug(
+                    "WampRawSocketProtocol: opening handshake received - {handshake}",
+                    handshake=_LazyHexFormatter(self._handshake_bytes),
+                )
 
-                if ord(self._handshake_bytes[0]) != 0x7f:
-                    if self.factory.debug:
-                        log.msg("WampRawSocketProtocol: invalid magic byte (octet 1) in opening handshake: was 0x{0}, but expected 0x7f".format(binascii.b2a_hex(self._handshake_bytes[0])))
+                if ord(self._handshake_bytes[0:1]) != 0x7f:
+                    self.log.debug(
+                        "WampRawSocketProtocol: invalid magic byte (octet 1) in opening handshake: was 0x{magic}, but expected 0x7f",
+                        magic=_LazyHexFormatter(self._handshake_bytes[0]),
+                    )
                     self.abort()
 
                 # peer requests us to send messages of maximum length 2**max_len_exp
                 #
-                self._max_len_send = 2 ** (9 + (ord(self._handshake_bytes[1]) >> 4))
-                if self.factory.debug:
-                    log.msg("WampRawSocketProtocol: server requests us to send out most {} bytes per message".format(self._max_len_send))
+                self._max_len_send = 2 ** (9 + (ord(self._handshake_bytes[1:2]) >> 4))
+                self.log.debug(
+                    "WampRawSocketProtocol: server requests us to send out most {max} bytes per message",
+                    max=self._max_len_send,
+                )
 
                 # client wants to speak this serialization format
                 #
-                ser_id = ord(self._handshake_bytes[1]) & 0x0F
+                ser_id = ord(self._handshake_bytes[1:2]) & 0x0F
                 if ser_id != self._serializer.RAWSOCKET_SERIALIZER_ID:
-                    if self.factory.debug:
-                        log.msg("WampRawSocketProtocol: opening handshake - no suitable serializer found (server replied {0}, and we requested {1})".format(ser_id, self._serializer.RAWSOCKET_SERIALIZER_ID))
+                    self.log.error(
+                        "WampRawSocketProtocol: opening handshake - no suitable serializer found (server replied {serializer}, and we requested {serializers})",
+                        serializer=ser_id,
+                        serializers=self._serializer.RAWSOCKET_SERIALIZER_ID,
+                    )
                     self.abort()
 
                 self._handshake_complete = True
 
                 self._on_handshake_complete()
 
-                if self.factory.debug:
-                    log.msg("WampRawSocketProtocol: opening handshake completed", self._serializer)
+                self.log.debug(
+                    "WampRawSocketProtocol: opening handshake completed (using serializer {serializer})",
+                    serializer=self._serializer,
+                )
 
             # consume any remaining data received already ..
             #
             data = data[remaining:]
             if data:
                 self.dataReceived(data)
+
+    def get_channel_id(self, channel_id_type=u'tls-unique'):
+        """
+        Implements :func:`autobahn.wamp.interfaces.ITransport.get_channel_id`
+        """
+        return transport_channel_id(self.transport, is_server=False, channel_id_type=channel_id_type)
 
 
 class WampRawSocketFactory(Factory):
@@ -321,7 +350,7 @@ class WampRawSocketServerFactory(WampRawSocketFactory):
     """
     protocol = WampRawSocketServerProtocol
 
-    def __init__(self, factory, serializers=None, debug=False):
+    def __init__(self, factory, serializers=None):
         """
 
         :param factory: A callable that produces instances that implement
@@ -335,16 +364,30 @@ class WampRawSocketServerFactory(WampRawSocketFactory):
         assert(callable(factory))
         self._factory = factory
 
-        self.debug = debug
-
         if serializers is None:
             serializers = []
+
+            # try CBOR WAMP serializer
+            try:
+                from autobahn.wamp.serializer import CBORSerializer
+                serializers.append(CBORSerializer(batched=True))
+                serializers.append(CBORSerializer())
+            except ImportError:
+                pass
 
             # try MsgPack WAMP serializer
             try:
                 from autobahn.wamp.serializer import MsgPackSerializer
                 serializers.append(MsgPackSerializer(batched=True))
                 serializers.append(MsgPackSerializer())
+            except ImportError:
+                pass
+
+            # try UBJSON WAMP serializer
+            try:
+                from autobahn.wamp.serializer import UBJSONSerializer
+                serializers.append(UBJSONSerializer(batched=True))
+                serializers.append(UBJSONSerializer())
             except ImportError:
                 pass
 
@@ -370,7 +413,7 @@ class WampRawSocketClientFactory(WampRawSocketFactory):
     """
     protocol = WampRawSocketClientProtocol
 
-    def __init__(self, factory, serializer=None, debug=False):
+    def __init__(self, factory, serializer=None):
         """
 
         :param factory: A callable that produces instances that implement
@@ -384,7 +427,14 @@ class WampRawSocketClientFactory(WampRawSocketFactory):
         assert(callable(factory))
         self._factory = factory
 
-        self.debug = debug
+        if serializer is None:
+
+            # try CBOR WAMP serializer
+            try:
+                from autobahn.wamp.serializer import CBORSerializer
+                serializer = CBORSerializer()
+            except ImportError:
+                pass
 
         if serializer is None:
 
@@ -392,6 +442,15 @@ class WampRawSocketClientFactory(WampRawSocketFactory):
             try:
                 from autobahn.wamp.serializer import MsgPackSerializer
                 serializer = MsgPackSerializer()
+            except ImportError:
+                pass
+
+        if serializer is None:
+
+            # try UBJSON WAMP serializer
+            try:
+                from autobahn.wamp.serializer import UBJSONSerializer
+                serializer = UBJSONSerializer()
             except ImportError:
                 pass
 

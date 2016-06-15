@@ -26,27 +26,13 @@
 
 from __future__ import absolute_import
 
-import sys
-import inspect
-
 from autobahn import wamp
 from autobahn.wamp.uri import Pattern
 
-if sys.version_info < (2, 7):
-    # noinspection PyUnresolvedReferences
-    import unittest2 as unittest
-else:
-    # from twisted.trial import unittest
-    import unittest
+import unittest2 as unittest
 
 
 class TestUris(unittest.TestCase):
-
-    def setUp(self):
-        pass
-
-    def tearDown(self):
-        pass
 
     def test_invalid_uris(self):
         for u in [u"",
@@ -62,6 +48,7 @@ class TestUris(unittest.TestCase):
         for u in [u"com.myapp.proc1",
                   u"123",
                   u"com.myapp.<product:int>.update",
+                  u"com.myapp.<category:string>.<subcategory>.list"
                   ]:
             p = Pattern(u, Pattern.URI_TARGET_ENDPOINT)
             self.assertIsInstance(p, Pattern)
@@ -80,6 +67,19 @@ class TestUris(unittest.TestCase):
                 (u"com.myapp.box.update", {u'product': u'box'}),
                 (u"com.myapp.123456.update", {u'product': u'123456'}),
                 (u"com.myapp..update", None),
+            ]
+            ),
+            (u"com.myapp.<product>.update", [
+                (u"com.myapp.0.update", {u'product': u'0'}),
+                (u"com.myapp.abc.update", {u'product': u'abc'}),
+                (u"com.myapp..update", None),
+            ]
+            ),
+            (u"com.myapp.<category:string>.<subcategory:string>.list", [
+                (u"com.myapp.cosmetic.shampoo.list", {u'category': u'cosmetic', u'subcategory': u'shampoo'}),
+                (u"com.myapp...list", None),
+                (u"com.myapp.cosmetic..list", None),
+                (u"com.myapp..shampoo.list", None),
             ]
             )
         ]
@@ -101,7 +101,7 @@ class TestDecorators(unittest.TestCase):
 
         @wamp.register(u"com.calculator.square")
         def square(_):
-            pass
+            """Do nothing."""
 
         self.assertTrue(hasattr(square, '_wampuris'))
         self.assertTrue(type(square._wampuris) == list)
@@ -113,10 +113,9 @@ class TestDecorators(unittest.TestCase):
         self.assertEqual(square._wampuris[0].uri(), u"com.calculator.square")
         self.assertEqual(square._wampuris[0]._type, Pattern.URI_TYPE_EXACT)
 
-        # noinspection PyUnusedLocal
         @wamp.register(u"com.myapp.product.<product:int>.update")
         def update_product(product=None, label=None):
-            pass
+            """Do nothing."""
 
         self.assertTrue(hasattr(update_product, '_wampuris'))
         self.assertTrue(type(update_product._wampuris) == list)
@@ -128,10 +127,9 @@ class TestDecorators(unittest.TestCase):
         self.assertEqual(update_product._wampuris[0].uri(), u"com.myapp.product.<product:int>.update")
         self.assertEqual(update_product._wampuris[0]._type, Pattern.URI_TYPE_WILDCARD)
 
-        # noinspection PyUnusedLocal
         @wamp.register(u"com.myapp.<category:string>.<cid:int>.update")
         def update(category=None, cid=None):
-            pass
+            """Do nothing."""
 
         self.assertTrue(hasattr(update, '_wampuris'))
         self.assertTrue(type(update._wampuris) == list)
@@ -147,7 +145,7 @@ class TestDecorators(unittest.TestCase):
 
         @wamp.subscribe(u"com.myapp.on_shutdown")
         def on_shutdown():
-            pass
+            """Do nothing."""
 
         self.assertTrue(hasattr(on_shutdown, '_wampuris'))
         self.assertTrue(type(on_shutdown._wampuris) == list)
@@ -159,10 +157,9 @@ class TestDecorators(unittest.TestCase):
         self.assertEqual(on_shutdown._wampuris[0].uri(), u"com.myapp.on_shutdown")
         self.assertEqual(on_shutdown._wampuris[0]._type, Pattern.URI_TYPE_EXACT)
 
-        # noinspection PyUnusedLocal
         @wamp.subscribe(u"com.myapp.product.<product:int>.on_update")
         def on_product_update(product=None, label=None):
-            pass
+            """Do nothing."""
 
         self.assertTrue(hasattr(on_product_update, '_wampuris'))
         self.assertTrue(type(on_product_update._wampuris) == list)
@@ -176,7 +173,7 @@ class TestDecorators(unittest.TestCase):
 
         @wamp.subscribe(u"com.myapp.<category:string>.<cid:int>.on_update")
         def on_update(category=None, cid=None, label=None):
-            pass
+            """Do nothing."""
 
         self.assertTrue(hasattr(on_update, '_wampuris'))
         self.assertTrue(type(on_update._wampuris) == list)
@@ -192,7 +189,7 @@ class TestDecorators(unittest.TestCase):
 
         @wamp.error(u"com.myapp.error")
         class AppError(Exception):
-            pass
+            """Do nothing."""
 
         self.assertTrue(hasattr(AppError, '_wampuris'))
         self.assertTrue(type(AppError._wampuris) == list)
@@ -206,7 +203,7 @@ class TestDecorators(unittest.TestCase):
 
         @wamp.error(u"com.myapp.product.<product:int>.product_inactive")
         class ProductInactiveError(Exception):
-            pass
+            """Do nothing."""
 
         self.assertTrue(hasattr(ProductInactiveError, '_wampuris'))
         self.assertTrue(type(ProductInactiveError._wampuris) == list)
@@ -220,7 +217,7 @@ class TestDecorators(unittest.TestCase):
 
         @wamp.error(u"com.myapp.<category:string>.<product:int>.inactive")
         class ObjectInactiveError(Exception):
-            pass
+            """Do nothing."""
 
         self.assertTrue(hasattr(ObjectInactiveError, '_wampuris'))
         self.assertTrue(type(ObjectInactiveError._wampuris) == list)
@@ -347,24 +344,6 @@ class KwException(Exception):
 # 4. we can silently drop unconsumed args/kwargs
 
 
-def getargs(fun):
-    try:
-        argspec = inspect.getargspec(fun)
-    except:
-        if fun == Exception.__init__:
-            # `inspect.getargspec(Exception.__init__)` does work on PyPy, but not
-            # on CPython, since `Exception.__init__` is C code in CPython that
-            # cannot be reflected upon.
-            argspec = inspect.ArgSpec(args=['self'], varargs='args', keywords=None, defaults=None)
-        else:
-            raise Exception("could not inspect function {0}".format(fun))
-
-    args = argspec.args[:-len(argspec.defaults)]
-    kwargs = argspec.args[-len(argspec.defaults):]
-
-    return args, kwargs, argspec.varargs, argspec.keywords
-
-
 class MockSession(object):
 
     def __init__(self):
@@ -432,7 +411,7 @@ class TestDecoratorsAdvanced(unittest.TestCase):
         @wamp.register(u"com.oldapp.oldproc")
         @wamp.register(u"com.calculator.square")
         def square(x):
-            pass
+            """Do nothing."""
 
         self.assertTrue(hasattr(square, '_wampuris'))
         self.assertTrue(type(square._wampuris) == list)
@@ -545,7 +524,3 @@ class TestDecoratorsAdvanced(unittest.TestCase):
 
             self.assertIsInstance(exc, ecls)
             self.assertEqual(list(exc.args), args)
-
-
-if __name__ == '__main__':
-    unittest.main()

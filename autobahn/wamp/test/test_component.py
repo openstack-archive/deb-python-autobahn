@@ -25,17 +25,14 @@
 ###############################################################################
 
 from __future__ import absolute_import
-try:
-    from twisted.trial import unittest
-except ImportError:
-    unittest = None
 
 import os
 
-if unittest is not None:
+if os.environ.get('USE_TWISTED', False):
     from autobahn.twisted.util import sleep
     from autobahn.twisted import wamp
 
+    from twisted.trial import unittest
     from twisted.internet import defer
     from twisted.application import service
 
@@ -190,12 +187,13 @@ if unittest is not None:
 
     class TestRpc(unittest.TestCase):
 
+        if os.environ.get("WAMP_ROUTER_URL") is None:
+            skip = ("Please provide WAMP_ROUTER_URL environment with url to "
+                    "WAMP router to run WAMP integration tests")
+
         def setUp(self):
-            self.debug = False
             self.url = os.environ.get("WAMP_ROUTER_URL")
             self.realm = u"realm1"
-            if self.url is None:
-                raise unittest.SkipTest("Please provide WAMP_ROUTER_URL environment with url to wamp router to run wamp integration tests")
 
         @defer.inlineCallbacks
         def runOneTest(self, components):
@@ -207,9 +205,6 @@ if unittest is not None:
                     extra=dict(test=self),
                     realm=self.realm,
                     make=component,
-                    debug=bool(os.environ.get('debug_websocket', False)),
-                    debug_wamp=bool(os.environ.get('debug_lowlevel', False)),
-                    debug_app=bool(os.environ.get('debug_app', False))
                 )
                 c.setServiceParent(app)
 

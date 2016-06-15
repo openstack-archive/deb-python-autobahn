@@ -49,7 +49,7 @@ class BroadcastServerFactory(WebSocketServerFactory):
     protocol = BroadcastServerProtocol
 
     def __init__(self, url):
-        WebSocketServerFactory.__init__(self, url, debug=False)
+        WebSocketServerFactory.__init__(self, url)
         self.clients = []
 
     def register(self, client):
@@ -77,7 +77,7 @@ if __name__ == '__main__':
 
     log.startLogging(sys.stdout)
 
-    factory = BroadcastServerFactory("ws://localhost:9000")
+    factory = BroadcastServerFactory(u"ws://127.0.0.1:9000")
 
     reactor.listenTCP(9000, factory)
     reactor.run()

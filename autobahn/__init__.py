@@ -24,5 +24,8 @@
 #
 ###############################################################################
 
-__version__ = "0.10.3"
-version = __version__  # backward compat.
+from __future__ import absolute_import
+
+from autobahn._version import __version__
+
+version = __version__

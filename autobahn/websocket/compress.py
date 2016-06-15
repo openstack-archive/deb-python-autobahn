@@ -26,8 +26,20 @@
 
 from __future__ import absolute_import
 
-from autobahn.websocket.compress_base import *  # noqa
-from autobahn.websocket.compress_deflate import *  # noqa
+from autobahn.websocket.compress_base import \
+    PerMessageCompressOffer, \
+    PerMessageCompressOfferAccept, \
+    PerMessageCompressResponse, \
+    PerMessageCompressResponseAccept, \
+    PerMessageCompress
+
+from autobahn.websocket.compress_deflate import \
+    PerMessageDeflateMixin, \
+    PerMessageDeflateOffer, \
+    PerMessageDeflateOfferAccept, \
+    PerMessageDeflateResponse, \
+    PerMessageDeflateResponseAccept, \
+    PerMessageDeflate
 
 # this must be a list (not tuple), since we dynamically
 # extend it ..
@@ -46,7 +58,7 @@ __all__ = [
 ]
 
 # class for "permessage-deflate" is always available
-##
+#
 PERMESSAGE_COMPRESSION_EXTENSION = {
     PerMessageDeflateMixin.EXTENSION_NAME: {
         'Offer': PerMessageDeflateOffer,
@@ -59,13 +71,19 @@ PERMESSAGE_COMPRESSION_EXTENSION = {
 
 
 # include "permessage-bzip2" classes if bzip2 is available
-##
+#
 try:
     import bz2
 except ImportError:
     bz2 = None
 else:
-    from autobahn.websocket.compress_bzip2 import *  # noqa
+    from autobahn.websocket.compress_bzip2 import \
+        PerMessageBzip2Mixin, \
+        PerMessageBzip2Offer, \
+        PerMessageBzip2OfferAccept, \
+        PerMessageBzip2Response, \
+        PerMessageBzip2ResponseAccept, \
+        PerMessageBzip2
 
     PMCE = {
         'Offer': PerMessageBzip2Offer,
@@ -84,14 +102,20 @@ else:
 
 
 # include "permessage-snappy" classes if Snappy is available
-##
+#
 try:
     # noinspection PyPackageRequirements
     import snappy
 except ImportError:
     snappy = None
 else:
-    from autobahn.websocket.compress_snappy import *  # noqa
+    from autobahn.websocket.compress_snappy import \
+        PerMessageSnappyMixin, \
+        PerMessageSnappyOffer, \
+        PerMessageSnappyOfferAccept, \
+        PerMessageSnappyResponse, \
+        PerMessageSnappyResponseAccept, \
+        PerMessageSnappy
 
     PMCE = {
         'Offer': PerMessageSnappyOffer,

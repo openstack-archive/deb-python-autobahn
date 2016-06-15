@@ -59,10 +59,10 @@ def generate_totp_secret(length=10):
 
     :returns: The generated secret in Base32 (letters ``A-Z`` and digits ``2-7``).
        The length of the generated secret is ``length * 8 / 5`` octets.
-    :rtype: bytes
+    :rtype: unicode
     """
     assert(type(length) in six.integer_types)
-    return base64.b32encode(os.urandom(length))
+    return base64.b32encode(os.urandom(length)).decode('ascii')
 
 
 def compute_totp(secret, offset=0):
@@ -70,14 +70,15 @@ def compute_totp(secret, offset=0):
     Computes the current TOTP code.
 
     :param secret: Base32 encoded secret.
-    :type secret: bytes
-    :param offset: Time offset for which to compute TOTP.
+    :type secret: unicode
+    :param offset: Time offset (in steps, use eg -1, 0, +1 for compliance with RFC6238)
+        for which to compute TOTP.
     :type offset: int
 
     :returns: TOTP for current time (+/- offset).
-    :rtype: bytes
+    :rtype: unicode
     """
-    assert(type(secret) == bytes)
+    assert(type(secret) == six.text_type)
     assert(type(offset) in six.integer_types)
     try:
         key = base64.b32decode(secret)
@@ -88,15 +89,61 @@ def compute_totp(secret, offset=0):
     digest = hmac.new(key, msg, hashlib.sha1).digest()
     o = 15 & (digest[19] if six.PY3 else ord(digest[19]))
     token = (struct.unpack('>I', digest[o:o + 4])[0] & 0x7fffffff) % 1000000
-    return '{0:06d}'.format(token).encode('ascii')
+    return u'{0:06d}'.format(token)
 
 
-##
+def check_totp(secret, ticket):
+    """
+    Check a TOTP value received from a principal trying to authenticate against
+    the expected value computed from the secret shared between the principal and
+    the authenticating entity.
+
+    The Internet can be slow, and clocks might not match exactly, so some
+    leniency is allowed. RFC6238 recommends looking an extra time step in either
+    direction, which essentially opens the window from 30 seconds to 90 seconds.
+
+    :param secret: The secret shared between the principal (eg a client) that
+        is authenticating, and the authenticating entity (eg a server).
+    :type secret: unicode
+    :param ticket: The TOTP value to be checked.
+    :type ticket: unicode
+
+    :returns: ``True`` if the TOTP value is correct, else ``False``.
+    :rtype: bool
+    """
+    for offset in [0, 1, -1]:
+        if ticket == compute_totp(secret, offset):
+            return True
+    return False
+
+
+def qrcode_from_totp(secret, label, issuer):
+    if type(secret) != six.text_type:
+        raise Exception('secret must be of type unicode, not {}'.format(type(secret)))
+
+    if type(label) != six.text_type:
+        raise Exception('label must be of type unicode, not {}'.format(type(label)))
+
+    try:
+        import pyqrcode
+    except ImportError:
+        raise Exception('pyqrcode not installed')
+
+    import io
+    buffer = io.BytesIO()
+
+    data = pyqrcode.create(u'otpauth://totp/{}?secret={}&issuer={}'.format(label, secret, issuer))
+    data.svg(buffer, omithw=True)
+
+    return buffer.getvalue()
+
+
+#
 # The following code is adapted from the pbkdf2_bin() function
 # in here https://github.com/mitsuhiko/python-pbkdf2
 # Copyright 2011 by Armin Ronacher. Licensed under BSD license.
 # https://github.com/mitsuhiko/python-pbkdf2/blob/master/LICENSE
-##
+#
 _pack_int = Struct('>I').pack
 
 if six.PY3:
@@ -128,9 +175,9 @@ else:
     def _pbkdf2(data, salt, iterations, keylen, hashfunc):
         mac = hmac.new(data, None, hashfunc)
         buf = []
-        for block in xrange(1, -(-keylen // mac.digest_size) + 1):
+        for block in range(1, -(-keylen // mac.digest_size) + 1):
             rv = u = _pseudorandom(salt + _pack_int(block), mac)
-            for i in xrange(iterations - 1):
+            for i in range(iterations - 1):
                 u = _pseudorandom(''.join(map(chr, u)), mac)
                 rv = starmap(xor, izip(rv, u))
             buf.extend(rv)
@@ -172,9 +219,9 @@ def derive_key(secret, salt, iterations=1000, keylen=32):
     .. seealso:: http://en.wikipedia.org/wiki/PBKDF2
 
     :param secret: The secret.
-    :type secret: bytes
+    :type secret: bytes or unicode
     :param salt: The salt to be used.
-    :type salt: bytes
+    :type salt: bytes or unicode
     :param iterations: Number of iterations of derivation algorithm to run.
     :type iterations: int
     :param keylen: Length of the key to derive in bits.
@@ -183,10 +230,14 @@ def derive_key(secret, salt, iterations=1000, keylen=32):
     :return: The derived key in Base64 encoding.
     :rtype: bytes
     """
-    assert(type(secret) == bytes)
-    assert(type(salt) == bytes)
+    assert(type(secret) in [six.text_type, six.binary_type])
+    assert(type(salt) in [six.text_type, six.binary_type])
     assert(type(iterations) in six.integer_types)
     assert(type(keylen) in six.integer_types)
+    if type(secret) == six.text_type:
+        secret = secret.encode('utf8')
+    if type(salt) == six.text_type:
+        salt = salt.encode('utf8')
     key = pbkdf2(secret, salt, iterations, keylen)
     return binascii.b2a_base64(key).strip()
 
@@ -230,7 +281,16 @@ def compute_wcs(key, challenge):
     :return: The authentication signature.
     :rtype: bytes
     """
-    assert(type(key) == bytes)
-    assert(type(challenge) == bytes)
+    assert(type(key) in [six.text_type, six.binary_type])
+    assert(type(challenge) in [six.text_type, six.binary_type])
+    if type(key) == six.text_type:
+        key = key.encode('utf8')
+    if type(challenge) == six.text_type:
+        challenge = challenge.encode('utf8')
     sig = hmac.new(key, challenge, hashlib.sha256).digest()
     return binascii.b2a_base64(sig).strip()
+
+
+if __name__ == '__main__':
+    with open('test.svg', 'w') as f:
+        f.write(qrcode_from_totp(u'CACKN3GRF3KQZMEK', u'tobias1', u'Tavendo'))

@@ -217,7 +217,7 @@ class PersonaServerFactory(WebSocketServerFactory):
     protocol = PersonaServerProtocol
 
     def __init__(self, url):
-        WebSocketServerFactory.__init__(self, url, debug=False)
+        WebSocketServerFactory.__init__(self, url)
 
         # map of cookies
         self._cookies = {}
@@ -230,14 +230,14 @@ if __name__ == '__main__':
     print("Running Autobahn|Python {}".format(autobahn.version))
 
     # our WebSocket server factory
-    factory = PersonaServerFactory("ws://localhost:8080")
+    factory = PersonaServerFactory(u"ws://127.0.0.1:8080")
 
     # we serve static files under "/" ..
     root = File(".")
 
     # .. and our WebSocket server under "/ws"
     resource = WebSocketResource(factory)
-    root.putChild("ws", resource)
+    root.putChild(u"ws", resource)
 
     # run both under one Twisted Web Site
     site = Site(root)

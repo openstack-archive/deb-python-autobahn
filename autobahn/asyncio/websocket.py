@@ -24,11 +24,15 @@
 #
 ###############################################################################
 
+from __future__ import absolute_import
+
 from collections import deque
+
+import txaio
+txaio.use_asyncio()
 
 from autobahn.wamp import websocket
 from autobahn.websocket import protocol
-from autobahn.websocket import http
 
 try:
     import asyncio
@@ -41,6 +45,8 @@ except ImportError:
     from trollius import iscoroutine
     from trollius import Future
 
+from autobahn.websocket.types import ConnectionDeny
+
 
 __all__ = (
     'WebSocketAdapterProtocol',
@@ -49,7 +55,6 @@ __all__ = (
     'WebSocketAdapterFactory',
     'WebSocketServerFactory',
     'WebSocketClientFactory',
-
     'WampWebSocketServerProtocol',
     'WampWebSocketClientProtocol',
     'WampWebSocketServerFactory',
@@ -81,12 +86,12 @@ class WebSocketAdapterProtocol(asyncio.Protocol):
             peer = transport.get_extra_info('peername')
             try:
                 # FIXME: tcp4 vs tcp6
-                self.peer = "tcp:%s:%d" % (peer[0], peer[1])
+                self.peer = u"tcp:%s:%d" % (peer[0], peer[1])
             except:
                 # e.g. Unix Domain sockets don't have host/port
-                self.peer = "unix:{0}".format(peer)
+                self.peer = u"unix:{0}".format(peer)
         except:
-            self.peer = "?"
+            self.peer = u"?"
 
         self._connectionMade()
 
@@ -102,8 +107,6 @@ class WebSocketAdapterProtocol(asyncio.Protocol):
                 data = self.receive_queue.popleft()
                 if self.transport:
                     self._dataReceived(data)
-                else:
-                    print("WebSocketAdapterProtocol._consume: no transport")
             self._consume()
 
         self.waiter.add_done_callback(process)
@@ -172,6 +175,13 @@ class WebSocketAdapterProtocol(asyncio.Protocol):
         if yields(res):
             asyncio.async(res)
 
+    def get_channel_id(self):
+        """
+        Implements :func:`autobahn.wamp.interfaces.ITransport.get_channel_id`
+        """
+        # FIXME
+        raise Exception("transport channel binding not implemented for asyncio")
+
     def registerProducer(self, producer, streaming):
         raise Exception("not implemented")
 
@@ -190,10 +200,10 @@ class WebSocketServerProtocol(WebSocketAdapterProtocol, protocol.WebSocketServer
             res = self.onConnect(request)
             # if yields(res):
             #  res = yield from res
-        except http.HttpException as exc:
-            self.failHandshake(exc.reason, exc.code)
-        except Exception:
-            self.failHandshake(http.INTERNAL_SERVER_ERROR[1], http.INTERNAL_SERVER_ERROR[0])
+        except ConnectionDeny as e:
+            self.failHandshake(e.reason, e.code)
+        except Exception as e:
+            self.failHandshake("Internal server error: {}".format(e), ConnectionDeny.INTERNAL_SERVER_ERROR)
         else:
             self.succeedHandshake(res)
 
@@ -208,14 +218,15 @@ class WebSocketClientProtocol(WebSocketAdapterProtocol, protocol.WebSocketClient
         if yields(res):
             asyncio.async(res)
 
+    def startTLS(self):
+        raise Exception("WSS over explicit proxies not implemented")
+
 
 class WebSocketAdapterFactory(object):
     """
     Adapter class for asyncio-based WebSocket client and server factories.
     """
-
-    def _log(self, msg):
-        print(msg)
+    log = txaio.make_logger()
 
     def __call__(self):
         proto = self.protocol()
@@ -235,14 +246,8 @@ class WebSocketServerFactory(WebSocketAdapterFactory, protocol.WebSocketServerFa
         you can supply a ``loop`` keyword argument to specify the
         asyncio event loop to be used.
         """
-        if 'loop' in kwargs:
-            if kwargs['loop']:
-                self.loop = kwargs['loop']
-            else:
-                self.loop = asyncio.get_event_loop()
-            del kwargs['loop']
-        else:
-            self.loop = asyncio.get_event_loop()
+        loop = kwargs.pop('loop', None)
+        self.loop = loop or asyncio.get_event_loop()
 
         protocol.WebSocketServerFactory.__init__(self, *args, **kwargs)
 
@@ -259,14 +264,8 @@ class WebSocketClientFactory(WebSocketAdapterFactory, protocol.WebSocketClientFa
         you can supply a ``loop`` keyword argument to specify the
         asyncio event loop to be used.
         """
-        if 'loop' in kwargs:
-            if kwargs['loop']:
-                self.loop = kwargs['loop']
-            else:
-                self.loop = asyncio.get_event_loop()
-            del kwargs['loop']
-        else:
-            self.loop = asyncio.get_event_loop()
+        loop = kwargs.pop('loop', None)
+        self.loop = loop or asyncio.get_event_loop()
 
         protocol.WebSocketClientFactory.__init__(self, *args, **kwargs)
 
@@ -286,19 +285,9 @@ class WampWebSocketServerFactory(websocket.WampWebSocketServerFactory, WebSocket
 
     def __init__(self, factory, *args, **kwargs):
 
-        if 'serializers' in kwargs:
-            serializers = kwargs['serializers']
-            del kwargs['serializers']
-        else:
-            serializers = None
+        serializers = kwargs.pop('serializers', None)
 
-        if 'debug_wamp' in kwargs:
-            debug_wamp = kwargs['debug_wamp']
-            del kwargs['debug_wamp']
-        else:
-            debug_wamp = False
-
-        websocket.WampWebSocketServerFactory.__init__(self, factory, serializers, debug_wamp=debug_wamp)
+        websocket.WampWebSocketServerFactory.__init__(self, factory, serializers)
 
         kwargs['protocols'] = self._protocols
 
@@ -321,19 +310,9 @@ class WampWebSocketClientFactory(websocket.WampWebSocketClientFactory, WebSocket
 
     def __init__(self, factory, *args, **kwargs):
 
-        if 'serializers' in kwargs:
-            serializers = kwargs['serializers']
-            del kwargs['serializers']
-        else:
-            serializers = None
+        serializers = kwargs.pop('serializers', None)
 
-        if 'debug_wamp' in kwargs:
-            debug_wamp = kwargs['debug_wamp']
-            del kwargs['debug_wamp']
-        else:
-            debug_wamp = False
-
-        websocket.WampWebSocketClientFactory.__init__(self, factory, serializers, debug_wamp=debug_wamp)
+        websocket.WampWebSocketClientFactory.__init__(self, factory, serializers)
 
         kwargs['protocols'] = self._protocols
 

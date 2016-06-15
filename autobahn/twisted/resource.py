@@ -24,6 +24,9 @@
 #
 ###############################################################################
 
+
+from __future__ import absolute_import
+
 from zope.interface import implementer
 
 from twisted.protocols.policies import ProtocolWrapper
@@ -34,40 +37,16 @@ except ImportError:
     # starting from Twisted 12.2, NoResource has moved
     from twisted.web.resource import NoResource
 from twisted.web.resource import IResource, Resource
+from six import PY3
 
-# The following imports reactor at module level
-# See: https://twistedmatrix.com/trac/ticket/6849
-from twisted.web.http import HTTPChannel
-
-# .. and this also, since it imports t.w.http
-##
+# The following triggers an import of reactor at module level!
+#
 from twisted.web.server import NOT_DONE_YET
 
 __all__ = (
     'WebSocketResource',
-    'HTTPChannelHixie76Aware',
     'WSGIRootResource',
 )
-
-
-class HTTPChannelHixie76Aware(HTTPChannel):
-    """
-    Hixie-76 is deadly broken. It includes 8 bytes of body, but then does not
-    set content-length header. This hacked HTTPChannel injects the missing
-    HTTP header upon detecting Hixie-76. We need this since otherwise
-    Twisted Web will silently ignore the body.
-
-    To use this, set ``protocol = HTTPChannelHixie76Aware`` on your
-    `twisted.web.server.Site <http://twistedmatrix.com/documents/current/api/twisted.web.server.Site.html>`_ instance.
-
-    .. seealso: `Autobahn Twisted Web site example <https://github.com/tavendo/AutobahnPython/tree/master/examples/twisted/websocket/echo_site>`_
-    """
-
-    def headerReceived(self, line):
-        header = line.split(':')[0].lower()
-        if header == "sec-websocket-key1" and not self._transferDecoder:
-            HTTPChannel.headerReceived(self, "Content-Length: 8")
-        HTTPChannel.headerReceived(self, line)
 
 
 class WSGIRootResource(Resource):
@@ -82,7 +61,7 @@ class WSGIRootResource(Resource):
 
     .. seealso::
 
-       * `Autobahn Twisted Web WSGI example <https://github.com/tavendo/AutobahnPython/tree/master/examples/twisted/websocket/echo_wsgi>`_
+       * `Autobahn Twisted Web WSGI example <https://github.com/crossbario/autobahn-python/tree/master/examples/twisted/websocket/echo_wsgi>`_
        * `Original hack <http://blog.vrplumber.com/index.php?/archives/2426-Making-your-Twisted-resources-a-url-sub-tree-of-your-WSGI-resource....html>`_
     """
 
@@ -109,7 +88,6 @@ class WebSocketResource(object):
     """
     A Twisted Web resource for WebSocket.
     """
-
     isLeaf = True
 
     def __init__(self, factory):
@@ -139,21 +117,21 @@ class WebSocketResource(object):
         and let that do any subsequent communication.
         """
         # Create Autobahn WebSocket protocol.
-        ##
+        #
         protocol = self._factory.buildProtocol(request.transport.getPeer())
         if not protocol:
             # If protocol creation fails, we signal "internal server error"
             request.setResponseCode(500)
-            return ""
+            return b""
 
         # Take over the transport from Twisted Web
-        ##
+        #
         transport, request.transport = request.transport, None
 
         # Connect the transport to our protocol. Once #3204 is fixed, there
         # may be a cleaner way of doing this.
         # http://twistedmatrix.com/trac/ticket/3204
-        ##
+        #
         if isinstance(transport, ProtocolWrapper):
             # i.e. TLS is a wrapping protocol
             transport.wrappedProtocol = protocol
@@ -165,12 +143,20 @@ class WebSocketResource(object):
         # silly (since Twisted Web already did the HTTP request parsing
         # which we will do a 2nd time), but it's totally non-invasive to our
         # code. Maybe improve this.
-        ##
-        data = "%s %s HTTP/1.1\x0d\x0a" % (request.method, request.uri)
-        for h in request.requestHeaders.getAllRawHeaders():
-            data += "%s: %s\x0d\x0a" % (h[0], ",".join(h[1]))
-        data += "\x0d\x0a"
-        data += request.content.read()  # we need this for Hixie-76
+        #
+        if PY3:
+
+            data = request.method + b' ' + request.uri + b' HTTP/1.1\x0d\x0a'
+            for h in request.requestHeaders.getAllRawHeaders():
+                data += h[0] + b': ' + b",".join(h[1]) + b'\x0d\x0a'
+            data += b"\x0d\x0a"
+            data += request.content.read()
+
+        else:
+            data = "%s %s HTTP/1.1\x0d\x0a" % (request.method, request.uri)
+            for h in request.requestHeaders.getAllRawHeaders():
+                data += "%s: %s\x0d\x0a" % (h[0], ",".join(h[1]))
+            data += "\x0d\x0a"
         protocol.dataReceived(data)
 
         return NOT_DONE_YET

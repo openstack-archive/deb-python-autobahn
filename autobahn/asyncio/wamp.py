@@ -25,18 +25,21 @@
 ###############################################################################
 
 from __future__ import absolute_import
+import signal
+
+import six
 
 from autobahn.wamp import protocol
 from autobahn.wamp.types import ComponentConfig
-from autobahn.websocket.protocol import parseWsUrl
+from autobahn.websocket.util import parse_url
 from autobahn.asyncio.websocket import WampWebSocketClientFactory
 
 try:
-    from asyncio import get_event_loop
+    import asyncio
 except ImportError:
-    # Trollius >= 0.3 was renamed
+    # Trollius >= 0.3 was renamed to asyncio
     # noinspection PyUnresolvedReferences
-    from trollius import get_event_loop
+    import trollius as asyncio
 
 import txaio
 txaio.use_asyncio()
@@ -61,8 +64,9 @@ class ApplicationSessionFactory(protocol.ApplicationSessionFactory):
 
     session = ApplicationSession
     """
-   The application session class this application session factory will use. Defaults to :class:`autobahn.asyncio.wamp.ApplicationSession`.
-   """
+    The application session class this application session factory will use.
+    Defaults to :class:`autobahn.asyncio.wamp.ApplicationSession`.
+    """
 
 
 class ApplicationRunner(object):
@@ -74,34 +78,35 @@ class ApplicationRunner(object):
     connecting to a WAMP router.
     """
 
-    def __init__(self, url, realm, extra=None, serializers=None,
-                 debug=False, debug_wamp=False, debug_app=False):
+    def __init__(self, url, realm, extra=None, serializers=None, ssl=None):
         """
-
         :param url: The WebSocket URL of the WAMP router to connect to (e.g. `ws://somehost.com:8090/somepath`)
         :type url: unicode
+
         :param realm: The WAMP realm to join the application session to.
         :type realm: unicode
+
         :param extra: Optional extra configuration to forward to the application component.
         :type extra: dict
+
         :param serializers: A list of WAMP serializers to use (or None for default serializers).
            Serializers must implement :class:`autobahn.wamp.interfaces.ISerializer`.
         :type serializers: list
-        :param debug: Turn on low-level debugging.
-        :type debug: bool
-        :param debug_wamp: Turn on WAMP-level debugging.
-        :type debug_wamp: bool
-        :param debug_app: Turn on app-level debugging.
-        :type debug_app: bool
+
+        :param ssl: An (optional) SSL context instance or a bool. See
+           the documentation for the `loop.create_connection` asyncio
+           method, to which this value is passed as the ``ssl=``
+           kwarg.
+        :type ssl: :class:`ssl.SSLContext` or bool
         """
+        assert(type(url) == six.text_type)
+        assert(type(realm) == six.text_type)
+        assert(extra is None or type(extra) == dict)
         self.url = url
         self.realm = realm
         self.extra = extra or dict()
-        self.debug = debug
-        self.debug_wamp = debug_wamp
-        self.debug_app = debug_app
-        self.make = None
         self.serializers = serializers
+        self.ssl = ssl
 
     def run(self, make):
         """
@@ -116,27 +121,54 @@ class ApplicationRunner(object):
             cfg = ComponentConfig(self.realm, self.extra)
             try:
                 session = make(cfg)
-            except Exception as e:
-                # the app component could not be created .. fatal
-                print(e)
-                get_event_loop().stop()
+            except Exception:
+                self.log.failure("App session could not be created! ")
+                asyncio.get_event_loop().stop()
             else:
-                session.debug_app = self.debug_app
                 return session
 
-        isSecure, host, port, resource, path, params = parseWsUrl(self.url)
+        isSecure, host, port, resource, path, params = parse_url(self.url)
+
+        if self.ssl is None:
+            ssl = isSecure
+        else:
+            if self.ssl and not isSecure:
+                raise RuntimeError(
+                    'ssl argument value passed to %s conflicts with the "ws:" '
+                    'prefix of the url argument. Did you mean to use "wss:"?' %
+                    self.__class__.__name__)
+            ssl = self.ssl
 
         # 2) create a WAMP-over-WebSocket transport client factory
-        transport_factory = WampWebSocketClientFactory(create, url=self.url, serializers=self.serializers,
-                                                       debug=self.debug, debug_wamp=self.debug_wamp)
+        transport_factory = WampWebSocketClientFactory(create, url=self.url, serializers=self.serializers)
 
         # 3) start the client
-        loop = get_event_loop()
+        loop = asyncio.get_event_loop()
         txaio.use_asyncio()
         txaio.config.loop = loop
-        coro = loop.create_connection(transport_factory, host, port, ssl=isSecure)
-        loop.run_until_complete(coro)
+        coro = loop.create_connection(transport_factory, host, port, ssl=ssl)
+        (transport, protocol) = loop.run_until_complete(coro)
+
+        # start logging
+        txaio.start_logging(level='info')
+
+        try:
+            loop.add_signal_handler(signal.SIGTERM, loop.stop)
+        except NotImplementedError:
+            # signals are not available on Windows
+            pass
 
         # 4) now enter the asyncio event loop
-        loop.run_forever()
+        try:
+            loop.run_forever()
+        except KeyboardInterrupt:
+            # wait until we send Goodbye if user hit ctrl-c
+            # (done outside this except so SIGTERM gets the same handling)
+            pass
+
+        # give Goodbye message a chance to go through, if we still
+        # have an active session
+        if protocol._session:
+            loop.run_until_complete(protocol._session.leave())
+
         loop.close()

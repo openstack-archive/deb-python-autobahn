@@ -55,10 +55,11 @@ if os.environ.get('USE_TWISTED', False):
         def __init__(self, *args, **kw):
             ApplicationSession.__init__(self, *args, **kw)
             self.errors = []
+            self._realm = u'dummy'
             self._transport = MockTransport()
 
         def onUserError(self, e, msg):
-            self.errors.append((e, msg))
+            self.errors.append((e.value, msg))
 
     def exception_raiser(exc):
         '''
@@ -106,6 +107,8 @@ if os.environ.get('USE_TWISTED', False):
         # async/sync exception-raising stuff (i.e. make each test run
         # twice)...but that would mean switching all test-running over
         # to py-test
+
+        skip = True
 
         def test_on_join(self):
             session = MockApplicationSession()
@@ -212,7 +215,7 @@ if os.environ.get('USE_TWISTED', False):
             msg = message.Challenge(u"foo")
             session.onMessage(msg)
 
-            self.assertEqual(1, len(session.errors))
+            self.assertEqual(2, len(session.errors))
             self.assertEqual(exception, session.errors[0][0])
 
         def test_on_disconnect_via_close(self):
@@ -255,7 +258,8 @@ if os.environ.get('USE_TWISTED', False):
             # we already handle any onChallenge errors as "abort the
             # connection". So make sure our error showed up in the
             # fake-transport.
-            self.assertEqual(0, len(session.errors))
+            self.assertEqual(1, len(session.errors))
+            self.assertEqual(exception, session.errors[0][0])
             self.assertEqual(1, len(session._transport.messages))
             reply = session._transport.messages[0]
             self.assertIsInstance(reply, message.Abort)
@@ -273,7 +277,8 @@ if os.environ.get('USE_TWISTED', False):
             # we already handle any onChallenge errors as "abort the
             # connection". So make sure our error showed up in the
             # fake-transport.
-            self.assertEqual(0, len(session.errors))
+            self.assertEqual(1, len(session.errors))
+            self.assertEqual(session.errors[0][0], exception)
             self.assertEqual(1, len(session._transport.messages))
             reply = session._transport.messages[0]
             self.assertIsInstance(reply, message.Abort)

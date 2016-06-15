@@ -24,11 +24,68 @@
 #
 ###############################################################################
 
+
+from __future__ import absolute_import
+
 import re
 import six
+
 from autobahn.wamp.types import SubscribeOptions
 
-__all__ = ('Pattern',)
+__all__ = (
+    'Pattern',
+    'register',
+    'subscribe',
+    'error',
+    'convert_starred_uri'
+)
+
+
+def convert_starred_uri(uri):
+    """
+    Convert a starred URI to a standard WAMP URI and a detected matching
+    policy. A starred URI is one that may contain the character '*' used
+    to mark URI wildcard components or URI prefixes. Starred URIs are
+    more comfortable / intuitive to use at the user/API level, but need
+    to be converted for use on the wire (WAMP protocol level).
+
+    This function takes a possibly starred URI, detects the matching policy
+    implied by stars, and returns a pair (uri, match) with any stars
+    removed from the URI and the detected matching policy.
+
+    An URI like 'com.example.topic1' (without any stars in it) is
+    detected as an exact-matching URI.
+
+    An URI like 'com.example.*' (with exactly one star at the very end)
+    is detected as a prefix-matching URI on 'com.example.'.
+
+    An URI like 'com.*.foobar.*' (with more than one star anywhere) is
+    detected as a wildcard-matching URI on 'com..foobar.' (in this example,
+    there are two wildcard URI components).
+
+    Note that an URI like 'com.example.*' is always detected as
+    a prefix-matching URI 'com.example.'. You cannot express a wildcard-matching
+    URI 'com.example.' using the starred URI notation! A wildcard matching on
+    'com.example.' is different from prefix-matching on 'com.example.' (which
+    matches a strict superset of the former!). This is one reason we don't use
+    starred URIs for WAMP at the protocol level.
+    """
+    assert(type(uri) == six.text_type)
+
+    cnt_stars = uri.count(u'*')
+
+    if cnt_stars == 0:
+        match = u'exact'
+
+    elif cnt_stars == 1 and uri[-1] == u'*':
+        match = u'prefix'
+        uri = uri[:-1]
+
+    else:
+        match = u'wildcard'
+        uri = uri.replace(u'*', u'')
+
+    return uri, match
 
 
 class Pattern(object):
@@ -54,24 +111,24 @@ class Pattern(object):
 
     _URI_COMPONENT = re.compile(r"^[a-z0-9][a-z0-9_\-]*$")
     """
-   Compiled regular expression for a WAMP URI component.
-   """
+    Compiled regular expression for a WAMP URI component.
+    """
 
     _URI_NAMED_COMPONENT = re.compile(r"^<([a-z][a-z0-9_]*)>$")
     """
-   Compiled regular expression for a named WAMP URI component.
+    Compiled regular expression for a named WAMP URI component.
 
-   .. note::
-      This pattern is stricter than a general WAMP URI component since a valid Python identifier is required.
-   """
+    .. note::
+        This pattern is stricter than a general WAMP URI component since a valid Python identifier is required.
+    """
 
     _URI_NAMED_CONVERTED_COMPONENT = re.compile(r"^<([a-z][a-z0-9_]*):([a-z]*)>$")
     """
-   Compiled regular expression for a named and type-converted WAMP URI component.
+    Compiled regular expression for a named and type-converted WAMP URI component.
 
-   .. note::
-      This pattern is stricter than a general WAMP URI component since a valid Python identifier is required.
-   """
+    .. note::
+        This pattern is stricter than a general WAMP URI component since a valid Python identifier is required.
+    """
 
     def __init__(self, uri, target):
         """
@@ -124,7 +181,7 @@ class Pattern(object):
                     raise Exception("invalid URI")
 
                 nc[name] = str
-                pl.append("(?P<{0}>[a-z][a-z0-9_]*)".format(name))
+                pl.append("(?P<{0}>[a-z0-9_]+)".format(name))
                 continue
 
             match = Pattern._URI_COMPONENT.match(component)
@@ -215,3 +272,42 @@ class Pattern(object):
         :rtype: bool
         """
         return self._target == Pattern.URI_TARGET_EXCEPTION
+
+
+def register(uri):
+    """
+    Decorator for WAMP procedure endpoints.
+    """
+    def decorate(f):
+        assert(callable(f))
+        if not hasattr(f, '_wampuris'):
+            f._wampuris = []
+        f._wampuris.append(Pattern(uri, Pattern.URI_TARGET_ENDPOINT))
+        return f
+    return decorate
+
+
+def subscribe(uri):
+    """
+    Decorator for WAMP event handlers.
+    """
+    def decorate(f):
+        assert(callable(f))
+        if not hasattr(f, '_wampuris'):
+            f._wampuris = []
+        f._wampuris.append(Pattern(uri, Pattern.URI_TARGET_HANDLER))
+        return f
+    return decorate
+
+
+def error(uri):
+    """
+    Decorator for WAMP error classes.
+    """
+    def decorate(cls):
+        assert(issubclass(cls, Exception))
+        if not hasattr(cls, '_wampuris'):
+            cls._wampuris = []
+        cls._wampuris.append(Pattern(uri, Pattern.URI_TARGET_EXCEPTION))
+        return cls
+    return decorate

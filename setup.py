@@ -26,11 +26,11 @@
 
 from __future__ import absolute_import
 
-import re
+import os
 import sys
 import platform
 from setuptools import setup
-from setuptools.command.test import test as TestCommand
+from setuptools.command.test import test as test_command
 
 # remember if we already had six _before_ installation
 try:
@@ -43,106 +43,113 @@ CPY = platform.python_implementation() == 'CPython'
 PY3 = sys.version_info >= (3,)
 PY33 = (3, 3) <= sys.version_info < (3, 4)
 
-LONGSDESC = """
-.. |ab| replace:: **Autobahn**\|Python
+# read version string
+with open('autobahn/_version.py') as f:
+    exec(f.read())  # defines __version__
 
-|ab| is a networking library that is part of the `Autobahn <http://autobahn.ws>`__
-project and provides implementations of
+# read package long description
+with open('README.rst') as f:
+    docstr = f.read()
 
-* `The WebSocket Protocol <http://tools.ietf.org/html/rfc6455>`__
-* `The Web Application Messaging Protocol (WAMP) <http://wamp.ws>`__
-
-for `Twisted <http://www.twistedmatrix.com/>`__ and
-`asyncio <https://docs.python.org/3/library/asyncio.html>`__,
-on Python 2 & 3 and for writing servers and clients.
-
-WebSocket allows bidirectional real-time messaging on the Web and WAMP
-adds asynchronous *Remote Procedure Calls* and *Publish & Subscribe* on
-top of WebSocket.
-
-More information:
-
-* `Project Site <http://autobahn.ws/python>`__
-* `Source Code <https://github.com/tavendo/AutobahnPython>`__
-"""
-
-# get version string from "autobahn/__init__.py"
-# See: http://stackoverflow.com/a/7071358/884770
-#
-VERSIONFILE = "autobahn/__init__.py"
-verstrline = open(VERSIONFILE, "rt").read()
-VSRE = r"^__version__ = ['\"]([^'\"]*)['\"]"
-mo = re.search(VSRE, verstrline, re.M)
-if mo:
-    verstr = mo.group(1)
-else:
-    raise RuntimeError("Unable to find version string in %s." % (VERSIONFILE,))
-
-
-# Autobahn core packages
-#
-packages = [
-    'autobahn',
-    'autobahn.wamp',
-    'autobahn.wamp.test',
-    'autobahn.websocket',
-    'autobahn.websocket.test',
-    'autobahn.asyncio',
-    'autobahn.twisted',
-    'twisted.plugins'
+# Twisted dependencies (be careful bumping these minimal versions,
+# as we make claims to support older Twisted!)
+extras_require_twisted = [
+    "zope.interface>=3.6.0",        # Zope Public License
+    "Twisted>=12.1.0"               # MIT license
 ]
 
-# Twisted dependencies
-#
-extras_require_twisted = ["zope.interface>=3.6", "Twisted>=11.1"]
-
 # asyncio dependencies
-#
 if PY3:
     if PY33:
         # "Tulip"
-        extras_require_asyncio = ["asyncio>=0.2.1"]
+        extras_require_asyncio = [
+            "asyncio>=3.4.3"        # Apache 2.0
+        ]
     else:
         # Python 3.4+ has asyncio builtin
         extras_require_asyncio = []
 else:
-    # backport of asyncio
-    extras_require_asyncio = ["trollius>=0.1.2", "futures>=2.1.5"]
+    # backport of asyncio for Python 2
+    extras_require_asyncio = [
+        "trollius>=2.0",            # Apache 2.0
+        "futures>=3.0.4"            # BSD license
+    ]
 
+# C-based WebSocket acceleration (only use on CPython, not PyPy!)
+if CPY and sys.platform != 'win32':
+    # wsaccel does not provide wheels: https://github.com/methane/wsaccel/issues/12
+    extras_require_accelerate = [
+        "wsaccel>=0.6.2"            # Apache 2.0
+    ]
+else:
+    extras_require_accelerate = []
 
-# C-based WebSocket acceleration
-#
-extras_require_accelerate = ["wsaccel>=0.6.2", "ujson>=1.33"] if CPY else []
+# non-standard WebSocket compression support (FIXME: consider removing altogether)
+# Ubuntu: sudo apt-get install libsnappy-dev
+# lz4: do we need that anyway?
+extras_require_compress = [
+    "python-snappy>=0.5",       # BSD license
+    "lz4>=0.7.0"                # BSD license
+]
 
-# non-standard WebSocket compression support
-#
-extras_require_compress = ["python-snappy>=0.5", "lz4>=0.2.1"]
+# non-JSON WAMP serialization support (namely MsgPack, CBOR and UBJSON)
+os.environ['PYUBJSON_NO_EXTENSION'] = '1'  # enforce use of pure Python py-ubjson (no Cython)
+extras_require_serialization = [
+    "u-msgpack-python>=2.1",    # MIT license
+    "cbor>=1.0.0",              # Apache 2.0 license
+    "py-ubjson>=0.8.4"          # Apache 2.0 license
+]
 
-# non-JSON WAMP serialization support (namely MsgPack)
-#
-extras_require_serialization = ["msgpack-python>=0.4.0"]
+# payload encryption (required for WAMP-cryptosign support!)
+os.environ['SODIUM_INSTALL'] = 'bundled'  # enforce use of bundled libsodium
+extras_require_encryption = [
+    'pynacl>=1.0.1',            # Apache license
+    'pytrie>=0.2',              # BSD license
+    'pyqrcode>=1.1'             # BSD license
+]
 
 # everything
-#
 extras_require_all = extras_require_twisted + extras_require_asyncio + \
-    extras_require_accelerate + extras_require_compress + extras_require_serialization
+    extras_require_accelerate + extras_require_compress + \
+    extras_require_serialization + extras_require_encryption
+
+# extras_require_all += extras_require_compress
 
 # development dependencies
-#
-extras_require_dev = ["pep8", "flake8", "mock>=1.0.1", "pytest>=2.6.4"]
+extras_require_dev = [
+    # flake8 will install the version "it needs"
+    # "pep8>=1.6.2",                      # MIT license
+    "pep8-naming>=0.3.3",               # MIT license
+    "flake8>=2.5.1",                    # MIT license
+    "pyflakes>=1.0.0",                  # MIT license
+    "mock>=1.3.0",                      # BSD license
+    "pytest>=2.8.6",                    # MIT license
+    "unittest2>=1.1.0",                 # BSD license
+    "twine>=1.6.5",                     # Apache 2.0
+    'sphinx>=1.2.3',                    # BSD
+    'pyenchant>=1.6.6',                 # LGPL
+    'sphinxcontrib-spelling>=2.1.2',    # BSD
+    'sphinx_rtd_theme>=0.1.9',          # BSD
+]
 
 # for testing by users with "python setup.py test" (not Tox, which we use)
-#
-test_requirements = ["pytest", "mock"]
+test_requirements = [
+    "pytest>=2.8.6",        # MIT license
+    "mock>=1.3.0"           # BSD license
+]
 
 
-# pytest integration for setuptools. see:
-# http://pytest.org/latest/goodpractises.html#integration-with-setuptools-test-commands
-# https://github.com/pyca/cryptography/pull/678/files
-class PyTest(TestCommand):
+class PyTest(test_command):
+    """
+    pytest integration for setuptools.
+
+    see:
+      - http://pytest.org/latest/goodpractises.html#integration-with-setuptools-test-commands
+      - https://github.com/pyca/cryptography/pull/678/files
+    """
 
     def finalize_options(self):
-        TestCommand.finalize_options(self)
+        test_command.finalize_options(self)
         self.test_args = []
         self.test_suite = True
 
@@ -153,21 +160,19 @@ class PyTest(TestCommand):
         sys.exit(errno)
 
 
-# Now install Autobahn ..
-#
 setup(
     name='autobahn',
-    version=verstr,
+    version=__version__,
     description='WebSocket client & server library, WAMP real-time framework',
-    long_description=LONGSDESC,
+    long_description=docstr,
     license='MIT License',
     author='Tavendo GmbH',
     author_email='autobahnws@googlegroups.com',
-    url='http://autobahn.ws/python',
+    url='http://crossbar.io/autobahn',
     platforms='Any',
     install_requires=[
-        'six>=1.6.1',
-        'txaio>=1.0.0'
+        'six>=1.10.0',      # MIT license
+        'txaio>=2.5.1',     # MIT license
     ],
     extras_require={
         'all': extras_require_all,
@@ -176,14 +181,26 @@ setup(
         'accelerate': extras_require_accelerate,
         'compress': extras_require_compress,
         'serialization': extras_require_serialization,
+        'encryption': extras_require_encryption,
         'dev': extras_require_dev,
     },
     tests_require=test_requirements,
-    cmdclass={'test': PyTest},
-    packages=packages,
+    cmdclass={
+        'test': PyTest
+    },
+    packages=[
+        'autobahn',
+        'autobahn.test',
+        'autobahn.wamp',
+        'autobahn.wamp.test',
+        'autobahn.websocket',
+        'autobahn.websocket.test',
+        'autobahn.asyncio',
+        'autobahn.twisted',
+        'twisted.plugins'
+    ],
     zip_safe=False,
     # http://pypi.python.org/pypi?%3Aaction=list_classifiers
-    #
     classifiers=["License :: OSI Approved :: MIT License",
                  "Development Status :: 5 - Production/Stable",
                  "Environment :: No Input/Output (Daemon)",
@@ -192,11 +209,11 @@ setup(
                  "Operating System :: OS Independent",
                  "Programming Language :: Python",
                  "Programming Language :: Python :: 2",
-                 "Programming Language :: Python :: 2.6",
                  "Programming Language :: Python :: 2.7",
                  "Programming Language :: Python :: 3",
                  "Programming Language :: Python :: 3.3",
                  "Programming Language :: Python :: 3.4",
+                 "Programming Language :: Python :: 3.5",
                  "Programming Language :: Python :: Implementation :: CPython",
                  "Programming Language :: Python :: Implementation :: PyPy",
                  "Programming Language :: Python :: Implementation :: Jython",
@@ -207,10 +224,11 @@ setup(
                  "Topic :: Software Development :: Libraries",
                  "Topic :: Software Development :: Libraries :: Python Modules",
                  "Topic :: Software Development :: Object Brokering"],
-    keywords='autobahn autobahn.ws websocket realtime rfc6455 wamp rpc pubsub twisted asyncio'
+    keywords='autobahn crossbar websocket realtime rfc6455 wamp rpc pubsub twisted asyncio'
 )
 
 
+# regenerate Twisted plugin cache
 try:
     from twisted.internet import reactor
     print("Twisted found (default reactor is {0})".format(reactor.__class__))

@@ -34,8 +34,7 @@ from twisted.web.static import File
 from autobahn.twisted.websocket import WebSocketServerFactory, \
     WebSocketServerProtocol
 
-from autobahn.twisted.resource import WebSocketResource, \
-    HTTPChannelHixie76Aware
+from autobahn.twisted.resource import WebSocketResource
 
 
 class EchoServerProtocol(WebSocketServerProtocol):
@@ -49,18 +48,10 @@ class EchoServerProtocol(WebSocketServerProtocol):
 
 if __name__ == '__main__':
 
-    if len(sys.argv) > 1 and sys.argv[1] == 'debug':
-        log.startLogging(sys.stdout)
-        debug = True
-    else:
-        debug = False
+    log.startLogging(sys.stdout)
 
-    factory = WebSocketServerFactory("ws://localhost:8080",
-                                     debug=debug,
-                                     debugCodePaths=debug)
-
+    factory = WebSocketServerFactory(u"ws://127.0.0.1:8080")
     factory.protocol = EchoServerProtocol
-    factory.setProtocolOptions(allowHixie76=True)  # needed if Hixie76 is to be supported
 
     resource = WebSocketResource(factory)
 
@@ -68,11 +59,10 @@ if __name__ == '__main__':
     root = File(".")
 
     # and our WebSocket server under "/ws"
-    root.putChild("ws", resource)
+    root.putChild(u"ws", resource)
 
     # both under one Twisted Web Site
     site = Site(root)
-    site.protocol = HTTPChannelHixie76Aware  # needed if Hixie76 is to be supported
     reactor.listenTCP(8080, site)
 
     reactor.run()

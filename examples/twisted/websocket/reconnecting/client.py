@@ -34,6 +34,7 @@ class MyClientProtocol(WebSocketClientProtocol):
 
     def onConnect(self, response):
         print("Server connected: {0}".format(response.peer))
+        self.factory.resetDelay()
 
     def onOpen(self):
         print("WebSocket connection open.")
@@ -78,7 +79,7 @@ if __name__ == '__main__':
 
     log.startLogging(sys.stdout)
 
-    factory = MyClientFactory("ws://localhost:9000", debug=False)
+    factory = MyClientFactory(u"ws://127.0.0.1:9000")
 
     reactor.connectTCP("127.0.0.1", 9000, factory)
     reactor.run()

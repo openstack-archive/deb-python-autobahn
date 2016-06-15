@@ -26,10 +26,10 @@
 
 from __future__ import absolute_import
 
-# from twisted.trial import unittest
-import unittest
+import unittest2 as unittest
 import platform
 
+import six
 import re
 import json
 import binascii
@@ -79,28 +79,28 @@ class TestWampAuthHelpers(unittest.TestCase):
 
     def test_generate_totp_secret_default(self):
         secret = auth.generate_totp_secret()
-        self.assertEqual(type(secret), bytes)
+        self.assertEqual(type(secret), six.text_type)
         self.assertEqual(len(secret), 10 * 8 / 5)
 
     def test_generate_totp_secret_length(self):
         for length in [5, 10, 20, 30, 40, 50]:
             secret = auth.generate_totp_secret(length)
-            self.assertEqual(type(secret), bytes)
+            self.assertEqual(type(secret), six.text_type)
             self.assertEqual(len(secret), length * 8 / 5)
 
     def test_compute_totp(self):
-        pat = re.compile(b"\d{6}")
-        secret = b"MFRGGZDFMZTWQ2LK"
+        pat = re.compile(u"\d{6}")
+        secret = u"MFRGGZDFMZTWQ2LK"
         signature = auth.compute_totp(secret)
-        self.assertEqual(type(signature), bytes)
+        self.assertEqual(type(signature), six.text_type)
         self.assertTrue(pat.match(signature) is not None)
 
     def test_compute_totp_offset(self):
-        pat = re.compile(b"\d{6}")
-        secret = b"MFRGGZDFMZTWQ2LK"
+        pat = re.compile(u"\d{6}")
+        secret = u"MFRGGZDFMZTWQ2LK"
         for offset in range(-10, 10):
             signature = auth.compute_totp(secret, offset)
-            self.assertEqual(type(signature), bytes)
+            self.assertEqual(type(signature), six.text_type)
             self.assertTrue(pat.match(signature) is not None)
 
     def test_derive_key(self):
@@ -127,7 +127,3 @@ class TestWampAuthHelpers(unittest.TestCase):
         signature = auth.compute_wcs(secret.encode('utf8'), challenge)
         self.assertEqual(type(signature), bytes)
         self.assertEqual(signature, b"1njQtmmeYO41N5EWEzD2kAjjEKRZ5kPZt/TzpYXOzR0=")
-
-
-if __name__ == '__main__':
-    unittest.main()

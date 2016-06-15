@@ -6,7 +6,7 @@ It also includes a WebSocket client that will send a WebSocket message every sec
 
 Lastly, a HTML5 client is also included.
 
-This example uses the Asyncio integration of **Autobahn**|Python. You can find the corresponding example using the Twisted integration [here](https://github.com/tavendo/AutobahnPython/tree/master/examples/twisted/websocket/echo).
+This example uses the Asyncio integration of **Autobahn**|Python. You can find the corresponding example using the Twisted integration [here](https://github.com/crossbario/autobahn-python/tree/master/examples/twisted/websocket/echo).
 
 ## Running
 
@@ -20,10 +20,6 @@ and open
 
 in your browser.
 
-To activate debug output on the server:
-
-    python server.py debug
-
 To run the Python client
 
     python client.py ws://127.0.0.1:9000
@@ -35,9 +31,3 @@ or (Python 3)
 or (Python 2)
 
     python client_coroutines_py2.py ws://127.0.0.1:9000
-
-To activate debug output on the client
-
-    python client.py ws://127.0.0.1:9000 debug
-
-

@@ -26,18 +26,11 @@
 
 from __future__ import absolute_import
 
-import sys
-
 from autobahn.wamp import role
 from autobahn.wamp import message
 from autobahn.wamp.exception import ProtocolError
 
-if sys.version_info < (2, 7):
-    # noinspection PyUnresolvedReferences
-    import unittest2 as unittest
-else:
-    # from twisted.trial import unittest
-    import unittest
+import unittest2 as unittest
 
 
 class Foo(object):
@@ -47,7 +40,7 @@ class Foo(object):
 class TestIds(unittest.TestCase):
 
     def test_valid_ids(self):
-        for val in [0, 1, 23, 42, 9007199254740992]:
+        for val in [0, 1, 23, 100000, 9007199254740992]:
             self.assertEqual(val, message.check_or_raise_id(val))
 
     def test_invalid_ids(self):
@@ -104,7 +97,7 @@ class TestUris(unittest.TestCase):
                   u"hello\xE2\x82\xACworld..foo",
                   u"hello\xF0\xA4\xAD\xA2world..foo",
                   ]:
-            self.assertEqual(u, message.check_or_raise_uri(u, allowEmptyComponents=True))
+            self.assertEqual(u, message.check_or_raise_uri(u, allow_empty_components=True))
 
     def test_invalid_uris_loose_empty(self):
         for u in [0,
@@ -120,7 +113,7 @@ class TestUris(unittest.TestCase):
                   u"com.myapp.product#",
                   u"com.#.product",
                   ]:
-            self.assertRaises(ProtocolError, message.check_or_raise_uri, u, allowEmptyComponents=True)
+            self.assertRaises(ProtocolError, message.check_or_raise_uri, u, allow_empty_components=True)
 
     def test_valid_uris_strict_nonempty(self):
         for u in [u"com.myapp.topic1",
@@ -163,7 +156,7 @@ class TestUris(unittest.TestCase):
                   u".",
                   u"",
                   ]:
-            self.assertEqual(u, message.check_or_raise_uri(u, strict=True, allowEmptyComponents=True))
+            self.assertEqual(u, message.check_or_raise_uri(u, strict=True, allow_empty_components=True))
 
     def test_invalid_uris_strict_empty(self):
         for u in [0,
@@ -185,7 +178,7 @@ class TestUris(unittest.TestCase):
                   u"hello\xE2\x82\xACworld..foo",
                   u"hello\xF0\xA4\xAD\xA2world..foo",
                   ]:
-            self.assertRaises(ProtocolError, message.check_or_raise_uri, u, strict=True, allowEmptyComponents=True)
+            self.assertRaises(ProtocolError, message.check_or_raise_uri, u, strict=True, allow_empty_components=True)
 
 
 class TestErrorMessage(unittest.TestCase):
@@ -378,12 +371,12 @@ class TestPublishMessage(unittest.TestCase):
         self.assertEqual(msg[4], [1, 2, 3])
         self.assertEqual(msg[5], {u'foo': 23, u'bar': u'hello'})
 
-        e = message.Publish(123456, u'com.myapp.topic1', exclude_me=False, exclude=[300], eligible=[100, 200, 300], disclose_me=True)
+        e = message.Publish(123456, u'com.myapp.topic1', exclude_me=False, exclude=[300], eligible=[100, 200, 300])
         msg = e.marshal()
         self.assertEqual(len(msg), 4)
         self.assertEqual(msg[0], message.Publish.MESSAGE_TYPE)
         self.assertEqual(msg[1], 123456)
-        self.assertEqual(msg[2], {u'exclude_me': False, u'disclose_me': True, u'exclude': [300], u'eligible': [100, 200, 300]})
+        self.assertEqual(msg[2], {u'exclude_me': False, u'exclude': [300], u'eligible': [100, 200, 300]})
         self.assertEqual(msg[3], u'com.myapp.topic1')
 
     def test_parse_and_marshal(self):
@@ -397,7 +390,6 @@ class TestPublishMessage(unittest.TestCase):
         self.assertEqual(msg.exclude_me, None)
         self.assertEqual(msg.exclude, None)
         self.assertEqual(msg.eligible, None)
-        self.assertEqual(msg.disclose_me, None)
         self.assertEqual(msg.marshal(), wmsg)
 
         wmsg = [message.Publish.MESSAGE_TYPE, 123456, {}, u'com.myapp.topic1', [1, 2, 3], {u'foo': 23, u'bar': u'hello'}]
@@ -410,10 +402,9 @@ class TestPublishMessage(unittest.TestCase):
         self.assertEqual(msg.exclude_me, None)
         self.assertEqual(msg.exclude, None)
         self.assertEqual(msg.eligible, None)
-        self.assertEqual(msg.disclose_me, None)
         self.assertEqual(msg.marshal(), wmsg)
 
-        wmsg = [message.Publish.MESSAGE_TYPE, 123456, {u'exclude_me': False, u'disclose_me': True, u'exclude': [300], u'eligible': [100, 200, 300]}, u'com.myapp.topic1']
+        wmsg = [message.Publish.MESSAGE_TYPE, 123456, {u'exclude_me': False, u'exclude': [300], u'eligible': [100, 200, 300]}, u'com.myapp.topic1']
         msg = message.Publish.parse(wmsg)
         self.assertIsInstance(msg, message.Publish)
         self.assertEqual(msg.request, 123456)
@@ -423,7 +414,6 @@ class TestPublishMessage(unittest.TestCase):
         self.assertEqual(msg.exclude_me, False)
         self.assertEqual(msg.exclude, [300])
         self.assertEqual(msg.eligible, [100, 200, 300])
-        self.assertEqual(msg.disclose_me, True)
         self.assertEqual(msg.marshal(), wmsg)
 
 
@@ -1023,7 +1013,3 @@ class TestGoodbyeMessage(unittest.TestCase):
     def test_str(self):
         e = message.Goodbye(reason=u'wamp.error.system_shutdown', message=u'The host is shutting down now.')
         self.assertIsInstance(str(e), str)
-
-
-if __name__ == '__main__':
-    unittest.main()

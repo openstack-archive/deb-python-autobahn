@@ -54,12 +54,12 @@ if __name__ == '__main__':
     log.startLogging(sys.stdout)
 
     parser = OptionParser()
-    parser.add_option("-u", "--url", dest="url", help="The WebSocket URL", default="wss://localhost:9000")
+    parser.add_option("-u", "--url", dest="url", help="The WebSocket URL", default="wss://127.0.0.1:9000")
     (options, args) = parser.parse_args()
 
     # create a WS server factory with our protocol
     ##
-    factory = WebSocketClientFactory(options.url, debug=False)
+    factory = WebSocketClientFactory(options.url)
     factory.protocol = EchoClientProtocol
 
     # SSL client context: default
