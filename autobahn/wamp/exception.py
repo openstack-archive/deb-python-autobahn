@@ -26,7 +26,9 @@
 
 from __future__ import absolute_import
 
-from autobahn.wamp import error
+import six
+
+from autobahn.wamp.uri import error
 
 __all__ = (
     'Error',
@@ -164,6 +166,17 @@ class ApplicationError(Error):
     *itself* failed. E.g. a custom authorizer did run into an error.
     """
 
+    AUTHENTICATION_FAILED = u"wamp.error.authentication_failed"
+    """
+    Something failed with the authentication itself, that is, authentication could
+    not run to end.
+    """
+
+    NO_AUTH_METHOD = u"wamp.error.no_auth_method"
+    """
+    No authentication method the peer offered is available or active.
+    """
+
     NO_SUCH_REALM = u"wamp.error.no_such_realm"
     """
     Peer wanted to join a non-existing realm (and the *Router* did not allow to auto-create
@@ -177,16 +190,15 @@ class ApplicationError(Error):
     exists - hence there is some misconfiguration in the Router.
     """
 
+    NO_SUCH_PRINCIPAL = u"wamp.error.no_such_principal"
+    """
+    A *Peer* was authenticated for an authid that does not or longer exists.
+    """
+
     # FIXME: this currently isn't used neither in Autobahn nor Crossbar. Check!
     CANCELED = u"wamp.error.canceled"
     """
     A Dealer or Callee canceled a call previously issued (WAMP AP).
-    """
-
-    # FIXME: this currently isn't used neither in Autobahn nor Crossbar. Check!
-    OPTION_DISALLOWED_DISCLOSE_ME = u"wamp.error.option_disallowed.disclose_me"
-    """
-    A Router rejected client request to disclose its identity (WAMP AP).
     """
 
     # FIXME: this currently isn't used neither in Autobahn nor Crossbar. Check!
@@ -197,6 +209,11 @@ class ApplicationError(Error):
     exclusion of (any) *Callee* providing the procedure (WAMP AP).
     """
 
+    # application payload end-to-end encryption related errors
+    ENC_NO_KEYRING_ACTIVE = u"wamp.error.encryption.no_keyring_active"
+    ENC_TRUSTED_URI_MISMATCH = u"wamp.error.encryption.trusted_uri_mismatch"
+    ENC_DECRYPT_ERROR = u"wamp.error.encryption.decrypt_error"
+
     def __init__(self, error, *args, **kwargs):
         """
 
@@ -206,14 +223,33 @@ class ApplicationError(Error):
         Exception.__init__(self, *args)
         self.kwargs = kwargs
         self.error = error
+        self.enc_algo = kwargs.pop('enc_algo', None)
+
+    def error_message(self):
+        """
+        Get the error message of this exception.
+
+        :return: unicode
+        """
+        return u'{0}: {1}'.format(
+            self.error,
+            u' '.join([six.text_type(a) for a in self.args]),
+        )
+
+    def __unicode__(self):
+        if self.kwargs and 'traceback' in self.kwargs:
+            tb = u':\n' + u'\n'.join(self.kwargs.pop('traceback')) + u'\n'
+            self.kwargs['traceback'] = u'...'
+        else:
+            tb = u''
+        return u"ApplicationError(error=<{0}>, args={1}, kwargs={2}, enc_algo={3}){4}".format(
+            self.error, list(self.args), self.kwargs, self.enc_algo, tb)
 
     def __str__(self):
-        if self.kwargs and 'traceback' in self.kwargs:
-            tb = ':\n' + '\n'.join(self.kwargs.pop('traceback')) + '\n'
-            self.kwargs['traceback'] = '...'
+        if six.PY3:
+            return self.__unicode__()
         else:
-            tb = ''
-        return "ApplicationError('{0}', args = {1}, kwargs = {2}){3}".format(self.error, self.args, self.kwargs, tb)
+            return self.__unicode__().encode('utf8')
 
 
 @error(ApplicationError.NOT_AUTHORIZED)

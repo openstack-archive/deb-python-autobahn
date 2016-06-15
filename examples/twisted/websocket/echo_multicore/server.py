@@ -31,21 +31,6 @@ import StringIO
 from sys import argv, executable
 from socket import AF_INET
 
-from twisted.internet import reactor
-from twisted.python import log
-from twisted.internet import reactor
-from twisted.internet.protocol import Factory
-from twisted.web.server import Site
-from twisted.web.static import File
-
-from autobahn.websocket import parseWsUrl
-
-from autobahn.twisted.websocket import WebSocketServerFactory, \
-    WebSocketServerProtocol
-
-from autobahn.util import Stopwatch
-
-
 # make sure we run a capable OS/reactor
 ##
 startupMsgs = []
@@ -66,7 +51,24 @@ elif sys.platform == 'win32':
 else:
     raise Exception("Hey man, what OS are you using?")
 
+from twisted.internet import reactor
+
 startupMsgs.append("Using Twisted reactor class %s on Twisted %s" % (str(reactor.__class__), pkg_resources.require("Twisted")[0].version))
+
+
+from twisted.internet import reactor
+from twisted.python import log
+from twisted.internet import reactor
+from twisted.internet.protocol import Factory
+from twisted.web.server import Site
+from twisted.web.static import File
+
+from autobahn.websocket.util import parse_url
+
+from autobahn.twisted.websocket import WebSocketServerFactory, \
+    WebSocketServerProtocol
+
+from autobahn.util import Stopwatch
 
 
 hasStatprof = False
@@ -206,8 +208,8 @@ class EchoServerFactory(WebSocketServerFactory):
 
     protocol = EchoServerProtocol
 
-    def __init__(self, wsuri, debug=False):
-        WebSocketServerFactory.__init__(self, wsuri, debug=debug, debugCodePaths=debug)
+    def __init__(self, wsuri):
+        WebSocketServerFactory.__init__(self, wsuri)
         self.stats = Stats()
 
 
@@ -277,11 +279,11 @@ def worker(options):
 
     if not options.noaffinity:
         p = psutil.Process(workerPid)
-        print "affinity [before]", p.get_cpu_affinity()
-        p.set_cpu_affinity([options.cpuid])
-        print "affinity [after]", p.get_cpu_affinity()
+        print "affinity [before]", p.cpu_affinity()
+        p.cpu_affinity([options.cpuid])
+        print "affinity [after]", p.cpu_affinity()
 
-    factory = EchoServerFactory(options.wsuri, debug=options.debug)
+    factory = EchoServerFactory(options.wsuri)
 
     # The master already created the socket, just start listening and accepting
     ##
@@ -352,10 +354,10 @@ if __name__ == '__main__':
     import argparse
     import psutil
 
-    DEFAULT_WORKERS = psutil.NUM_CPUS
+    DEFAULT_WORKERS = psutil.cpu_count()
 
     parser = argparse.ArgumentParser(description='Autobahn WebSocket Echo Multicore Server')
-    parser.add_argument('--wsuri', dest='wsuri', type=str, default='ws://localhost:9000', help='The WebSocket URI the server is listening on, e.g. ws://localhost:9000.')
+    parser.add_argument('--wsuri', dest='wsuri', type=str, default=u'ws://127.0.0.1:9000', help='The WebSocket URI the server is listening on, e.g. ws://localhost:9000.')
     parser.add_argument('--port', dest='port', type=int, default=8080, help='Port to listen on for embedded Web server. Set to 0 to disable.')
     parser.add_argument('--workers', dest='workers', type=int, default=DEFAULT_WORKERS, help='Number of workers to spawn - should fit the number of (physical) CPU cores.')
     parser.add_argument('--noaffinity', dest='noaffinity', action="store_true", default=False, help='Do not set worker/CPU affinity.')
@@ -375,7 +377,7 @@ if __name__ == '__main__':
 
     # parse WS URI into components and forward via options
     # FIXME: add TLS support
-    isSecure, host, wsport, resource, path, params = parseWsUrl(options.wsuri)
+    isSecure, host, wsport, resource, path, params = parse_url(options.wsuri)
     options.wsport = wsport
 
     # if not options.silence:

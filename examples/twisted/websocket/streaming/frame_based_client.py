@@ -25,7 +25,6 @@
 ###############################################################################
 
 import hashlib
-from pprint import pprint
 from ranstring import randomByteString
 
 from twisted.internet import reactor
@@ -66,7 +65,6 @@ class FrameBasedHashClientProtocol(WebSocketClientProtocol):
 
     def onMessage(self, payload, isBinary):
         print("Digest for frame {} computed by server: {}".format(self.count, payload.decode('utf8')))
-        # pprint(self.trafficStats.__json__())
         self.count += 1
 
         if self.count < FRAME_COUNT:
@@ -84,7 +82,7 @@ class FrameBasedHashClientProtocol(WebSocketClientProtocol):
 
 if __name__ == '__main__':
 
-    factory = WebSocketClientFactory("ws://localhost:9000")
+    factory = WebSocketClientFactory(u"ws://127.0.0.1:9000")
     factory.protocol = FrameBasedHashClientProtocol
 
     enableCompression = False

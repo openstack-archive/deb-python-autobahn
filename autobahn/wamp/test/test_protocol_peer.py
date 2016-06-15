@@ -25,20 +25,23 @@
 ###############################################################################
 
 from __future__ import absolute_import
+import os
 
-import sys
+# we need to select a txaio subsystem because we're importing the base
+# protocol classes here for testing purposes. "normally" you'd import
+# from autobahn.twisted.wamp or autobahn.asyncio.wamp explicitly.
+import txaio
+if os.environ.get('USE_TWISTED', False):
+    txaio.use_twisted()
+else:
+    txaio.use_asyncio()
 
 from autobahn import wamp
 from autobahn.wamp import message
 from autobahn.wamp import exception
 from autobahn.wamp import protocol
 
-if sys.version_info < (2, 7):
-    # noinspection PyUnresolvedReferences
-    import unittest2 as unittest
-else:
-    # from twisted.trial import unittest
-    import unittest
+import unittest2 as unittest
 
 
 class TestPeerExceptions(unittest.TestCase):
@@ -108,7 +111,3 @@ class TestPeerExceptions(unittest.TestCase):
         msg = session._message_from_exception(message.Call.MESSAGE_TYPE, 123456, exc)
 
         self.assertEqual(msg.marshal(), [message.Error.MESSAGE_TYPE, message.Call.MESSAGE_TYPE, 123456, {}, "com.myapp.error1"])
-
-
-if __name__ == '__main__':
-    unittest.main()

@@ -1,3 +1,5 @@
+.PHONY: test docs pep8
+
 all:
 	@echo "Targets:"
 	@echo ""
@@ -10,13 +12,14 @@ all:
 
 # install locally
 install:
-	#python setup.py install
-#	pip install -e .[twisted]
-#	pip install -e .[asyncio,twisted,accelerate,compress,serialization]
+	# enforce use of bundled libsodium
+	export SODIUM_INSTALL=bundled
 	pip install --upgrade -e .[all,dev]
 
 # cleanup everything
 clean:
+	rm -rf ./docs/build
+	rm -rf ./.cache
 	rm -rf ./autobahn.egg-info
 	rm -rf ./build
 	rm -rf ./dist
@@ -25,23 +28,37 @@ clean:
 	rm -rf ./.tox
 	rm -rf ./.eggs
 	rm -f  ./twisted/plugins/dropin.cache
+	find . -name "*dropin.cache.new" -type f -exec rm -f {} \;
 	find . -name "*.tar.gz" -type f -exec rm -f {} \;
 	find . -name "*.egg" -type f -exec rm -f {} \;
 	find . -name "*.pyc" -type f -exec rm -f {} \;
-	find . -name "*__pycache__" -type d -exec rm -rf {} \;
+
+	# Learn to love the shell! http://unix.stackexchange.com/a/115869/52500
+	find . \( -name "*__pycache__" -type d \) -prune -exec rm -rf {} +
 
 # publish to PyPI
 publish: clean
-	python setup.py register
-	python setup.py sdist upload
+	python setup.py sdist bdist_wheel
+	twine upload dist/*
+
+docs:
+	cd docs && make html
+
+spelling:
+	cd docs && sphinx-build -b spelling . _spelling
+
+test_styleguide:
+	flake8 --statistics --max-line-length=119 -qq autobahn
 
 # direct test via pytest (only here because of setuptools test integration)
 test_pytest:
-	python -m pytest -rsx .
+	python -m pytest -rsx autobahn/
 
 # test via setuptools command
 test_setuptools:
 	python setup.py test
+
+test: flake8 test_twisted test_asyncio
 
 # test under Twisted
 test_twisted:
@@ -57,13 +74,14 @@ test_twisted_coverage:
 
 test_coverage:
 	-rm .coverage
-	tox -e py27twisted,py27asyncio,py34asyncio
+	tox -e py27-twcurrent,py27-trollius,py34-asyncio
+	coverage combine
 	coverage html
 	coverage report --show-missing
 
 # test under asyncio
 test_asyncio:
-	USE_ASYNCIO=1 python -m pytest -rsx
+	USE_ASYNCIO=1 python -m pytest -rsx autobahn
 	#WAMP_ROUTER_URL="ws://127.0.0.1:8080/ws" USE_ASYNCIO=1 python -m pytest -rsx
 
 test1:
@@ -102,7 +120,7 @@ autopep8:
 
 # This will run pep8, pyflakes and can skip lines that end with # noqa
 flake8:
-	flake8 --ignore=E501 autobahn
+	flake8 --ignore=E402,E501,N801,N802,N803,N805,N806 autobahn
 
 # run PyLint
 pylint:
@@ -115,3 +133,6 @@ find_windows_files:
 # on Windows (Git Bash), check for files with Unix lines endings
 find_unix_files:
 	find . -name "*" -exec dos2unix -tv {} \; 2>&1 | grep "Unix"
+
+find_tavendo:
+	find . -path ./.git -prune -o -type f -exec grep -Hi "tavendo" {} \; | grep -v "Copyright (c) Tavendo"

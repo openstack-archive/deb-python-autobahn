@@ -72,30 +72,26 @@ if __name__ == '__main__':
     parser.add_argument("-d", "--debug", action="store_true",
                         help="Enable debug output.")
 
-    parser.add_argument("--websocket", default="tcp:localhost:9000",
-                        help='WebSocket client Twisted endpoint descriptor, e.g. "tcp:localhost:9000" or "unix:/tmp/mywebsocket".')
+    parser.add_argument("--websocket", default="tcp:127.0.0.1:9000",
+                        help='WebSocket client Twisted endpoint descriptor, e.g. "tcp:127.0.0.1:9000" or "unix:/tmp/mywebsocket".')
 
-    parser.add_argument("--wsurl", default="ws://localhost:9000",
-                        help='WebSocket URL (must suit the endpoint), e.g. "ws://localhost:9000".')
+    parser.add_argument("--wsurl", default=u"ws://127.0.0.1:9000",
+                        help='WebSocket URL (must suit the endpoint), e.g. ws://127.0.0.1:9000.')
 
     args = parser.parse_args()
 
     # start Twisted logging to stdout
-    ##
     log.startLogging(sys.stdout)
 
     # we use an Autobahn utility to import the "best" available Twisted reactor
-    ##
     from autobahn.choosereactor import install_reactor
     reactor = install_reactor()
     print("Running on reactor {}".format(reactor))
 
     # start a WebSocket client
-    ##
-    wsfactory = EchoClientFactory(args.wsurl, debug=args.debug)
+    wsfactory = EchoClientFactory(args.wsurl)
     wsclient = clientFromString(reactor, args.websocket)
     wsclient.connect(wsfactory)
 
     # now enter the Twisted reactor loop
-    ##
     reactor.run()

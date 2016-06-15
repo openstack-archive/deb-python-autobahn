@@ -1,3 +1,35 @@
+# Running the Example
+
+There are four pieces you need to start for the full demo (see below for explanation): a `netcat` or telnet daemon on port 23; a Web server; a WebSocket port-forwarder; and the browser frontend.
+
+## netcat
+
+In this demo, we forward a telnet session from a browser to a telnet server. So, we need to run he telnet server, which is easiest with "netcat": ``nc -l 23`` (as root, so you can listen on 23). Run this in its own terminal.
+
+
+## Web server
+
+To serve the Web content, we can use the built-in Web server from Twisted like so. Run this from the same directory as this README:
+
+    twistd -n --pidfile=twistd-web.pid web --path=. --port=tcp:8080
+
+
+## Port Forwarder
+
+More details below, but Autobahn provides a `twistd` plugin to "unwrap" a protocol that's being forwarded over WebSocket and send it to any endpoint. Run this in yet another window:
+
+	twistd -n --pidfile=twistd-pf.pid endpointforward --endpoint "autobahn:tcp\:9000:url=ws\://localhost\:9000" --dest_endpoint="tcp:127.0.0.1:23"
+
+This says, "listen on tcp 9000 and forward encapulated protocol to localhost:23".
+
+
+## Browser Frontend
+
+You can now point your favourite browser at http://localhost:8080/telnet.html and see the Websockify project's telnet demo; clicking "connect" should cause the "terminal" in your browser to be connected to your `netcat` process.
+
+That is, we've encapsulated telnet over WebSocket in your browser and then de-encapsulated it at your server and forwarded it to telnet; this can be done with any protocol.
+
+
 # Stream-based Endpoints over WebSocket
 
 **Autobahn**|Python provides facilities to wrap existing stream-based Twisted factories and protocols with WebSocket.
@@ -6,7 +38,7 @@ That means, you can run any stream-based protocol *over* WebSocket without any m
 Why would you want to do that? For example, to create a VNC, SSH, IRC, IMAP, MQTT or other client for some existing protocol that runs on browsers, and connects to an *unmodified* server.
 
 > This example is about running any stream-based Twisted endpoint over WebSocket.
-> **Autobahn**|Python also supports running WebSocket over any stream-based Twisted endpoint. Please see [here](https://github.com/tavendo/AutobahnPython/tree/master/examples/twisted/websocket/echo_endpoints).
+> **Autobahn**|Python also supports running WebSocket over any stream-based Twisted endpoint. Please see [here](https://github.com/crossbario/autobahn-python/tree/master/examples/twisted/websocket/echo_endpoints).
 >
 
 ## WebSocket Transport Scheme
@@ -37,7 +69,6 @@ There are a couple of optional arguments to `WrappingWebSocketClientFactory` for
 
  * `enableCompression` can be used to enable/disable WebSocket compression ("permessage-deflate")
  * `autoFragmentSize` can be used to automatically fragment the stream data into WebSocket frames of at most this size
- * `debug` enables/disables debug log output
 
 You can find a complete example for both client and server in these files:
 
@@ -68,12 +99,12 @@ You can find a complete example for both client and server in these files:
 
  1. `"autobahn:tcp\:localhost\:9000:url=ws\:// localhost\:9000"`
  1. `"autobahn:tcp\:localhost\:9000:url=ws\:// localhost\:9000:compress=false"`
- 1. `"autobahn:tcp\:localhost\:9000:url=ws\:// localhost\:9000:autofrag=4096:debug=true"`
+ 1. `"autobahn:tcp\:localhost\:9000:url=ws\:// localhost\:9000:autofrag=4096"`
 
 *Example Server Endpoint Descriptors*
 
  1. `"autobahn:tcp\:9000:url=ws\://localhost\:9000"`
- 1. `"autobahn:tcp\:9000:url=ws\://localhost\:9000:autofrag=4096:debug=true"`
+ 1. `"autobahn:tcp\:9000:url=ws\://localhost\:9000:autofrag=4096"`
  1. `"autobahn:tcp\:9000\:interface\=0.0.0.0:url=ws\://localhost\:9000:compress=true"`
 
 

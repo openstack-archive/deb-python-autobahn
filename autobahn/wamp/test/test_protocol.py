@@ -30,20 +30,19 @@ import os
 
 if os.environ.get('USE_TWISTED', False):
 
+    from twisted.internet.defer import inlineCallbacks, Deferred, returnValue
+    from twisted.internet.defer import succeed, DeferredList
     from twisted.trial import unittest
-    # import unittest
+    from six import PY3
 
-    from twisted.internet.defer import inlineCallbacks, Deferred, returnValue, succeed
-    from twisted.python import log
-
-    from autobahn.wamp import message
-    from autobahn.wamp import serializer
-    from autobahn.wamp import role
     from autobahn import util
-    from autobahn.wamp.exception import ApplicationError, NotAuthorized, InvalidUri, ProtocolError
-    from autobahn.wamp import types
-
     from autobahn.twisted.wamp import ApplicationSession
+    from autobahn.wamp import message, role, serializer, types
+    from autobahn.wamp.exception import ApplicationError, NotAuthorized
+    from autobahn.wamp.exception import InvalidUri, ProtocolError
+
+    if PY3:
+        long = int
 
     class MockTransport(object):
 
@@ -64,6 +63,7 @@ if os.environ.get('USE_TWISTED', False):
 
             msg = message.Welcome(self._my_session_id, roles)
             self._handler.onMessage(msg)
+            self._fake_router_session = ApplicationSession()
 
         def send(self, msg):
             if self._log:
@@ -75,7 +75,7 @@ if os.environ.get('USE_TWISTED', False):
             if isinstance(msg, message.Publish):
                 if msg.topic.startswith(u'com.myapp'):
                     if msg.acknowledge:
-                        reply = message.Published(msg.request, util.id())
+                        reply = message.Published(msg.request, self._fake_router_session._request_id_gen.next())
                 elif len(msg.topic) == 0:
                     reply = message.Error(message.Publish.MESSAGE_TYPE, msg.request, u'wamp.error.invalid_uri')
                 else:
@@ -91,7 +91,9 @@ if os.environ.get('USE_TWISTED', False):
 
                 elif msg.procedure.startswith(u'com.myapp.myproc'):
                     registration = self._registrations[msg.procedure]
-                    request = util.id()
+                    request = self._fake_router_session._request_id_gen.next()
+                    if request in self._invocations:
+                        raise ProtocolError("duplicate invocation")
                     self._invocations[request] = msg.request
                     reply = message.Invocation(
                         request, registration,
@@ -112,7 +114,7 @@ if os.environ.get('USE_TWISTED', False):
                 if topic in self._subscription_topics:
                     reply_id = self._subscription_topics[topic]
                 else:
-                    reply_id = util.id()
+                    reply_id = self._fake_router_session._request_id_gen.next()
                     self._subscription_topics[topic] = reply_id
                 reply = message.Subscribed(msg.request, reply_id)
 
@@ -120,7 +122,7 @@ if os.environ.get('USE_TWISTED', False):
                 reply = message.Unsubscribed(msg.request)
 
             elif isinstance(msg, message.Register):
-                registration = util.id()
+                registration = self._fake_router_session._request_id_gen.next()
                 self._registrations[msg.procedure] = registration
                 reply = message.Registered(msg.request, registration)
 
@@ -460,37 +462,28 @@ if os.environ.get('USE_TWISTED', False):
             error_instance = RuntimeError("we have a problem")
             got_err_d = Deferred()
 
-            def observer(kw):
-                if kw['isError'] and 'failure' in kw:
-                    fail = kw['failure']
-                    fail.trap(RuntimeError)
-                    if error_instance == fail.value:
-                        got_err_d.callback(True)
-            log.addObserver(observer)
+            def observer(e, msg):
+                if error_instance == e.value:
+                    got_err_d.callback(True)
+            handler.onUserError = observer
 
             def boom():
                 raise error_instance
 
-            try:
-                sub = yield handler.subscribe(boom, u'com.myapp.topic1')
+            sub = yield handler.subscribe(boom, u'com.myapp.topic1')
 
-                # MockTransport gives us the ack reply and then we do our
-                # own event message
-                publish = yield handler.publish(
-                    u'com.myapp.topic1',
-                    options=types.PublishOptions(acknowledge=True, exclude_me=False),
-                )
-                msg = message.Event(sub.id, publish.id)
-                handler.onMessage(msg)
+            # MockTransport gives us the ack reply and then we do our
+            # own event message
+            publish = yield handler.publish(
+                u'com.myapp.topic1',
+                options=types.PublishOptions(acknowledge=True, exclude_me=False),
+            )
+            msg = message.Event(sub.id, publish.id)
+            handler.onMessage(msg)
 
-                # we know it worked if our observer worked and did
-                # .callback on our Deferred above.
-                self.assertTrue(got_err_d.called)
-                # ...otherwise trial will fail the test anyway
-                self.flushLoggedErrors()
-
-            finally:
-                log.removeObserver(observer)
+            # we know it worked if our observer worked and did
+            # .callback on our Deferred above.
+            self.assertTrue(got_err_d.called)
 
         @inlineCallbacks
         def test_unsubscribe(self):
@@ -528,6 +521,30 @@ if os.environ.get('USE_TWISTED', False):
             registration = yield handler.register(on_call, u'com.myapp.procedure1')
             yield registration.unregister()
 
+        def test_on_disconnect_error(self):
+            errors = []
+
+            class AppSess(ApplicationSession):
+                def onUserError(self, e, msg):
+                    errors.append((e.value, msg))
+
+                def onDisconnect(self, foo, bar, quux='snark'):
+                    # this over-ridden onDisconnect takes the wrong args
+                    raise RuntimeError("This shouldn't happen")
+
+            s = AppSess()
+            MockTransport(s)
+
+            # when the transport closes, it calls onClose which should
+            # dispatch onDisconnect
+            s.onClose(False)
+
+            # ...but we should collect an error, because our
+            # onDisconnect takes the wrong arguments.
+            self.assertEqual(len(errors), 1)
+            self.assertTrue(isinstance(errors[0][0], TypeError))
+
+    class TestInvoker(unittest.TestCase):
         @inlineCallbacks
         def test_invoke(self):
             handler = ApplicationSession()
@@ -542,10 +559,64 @@ if os.environ.get('USE_TWISTED', False):
             self.assertEqual(res, 23)
 
         @inlineCallbacks
+        def test_invoke_twice(self):
+            handler = ApplicationSession()
+            MockTransport(handler)
+
+            def myproc1():
+                return 23
+
+            yield handler.register(myproc1, u'com.myapp.myproc1')
+
+            d0 = handler.call(u'com.myapp.myproc1')
+            d1 = handler.call(u'com.myapp.myproc1')
+            res = yield DeferredList([d0, d1])
+            self.assertEqual(res, [(True, 23), (True, 23)])
+
+        @inlineCallbacks
+        def test_invoke_request_id_sequences(self):
+            """
+            make sure each session independently generates sequential IDs
+            """
+            handler0 = ApplicationSession()
+            handler1 = ApplicationSession()
+            trans0 = MockTransport(handler0)
+            trans1 = MockTransport(handler1)
+
+            # the ID sequences for each session should both start at 0
+            # (the register) and then increment for the call()
+            def verify_seq_id(orig, msg):
+                if isinstance(msg, message.Register):
+                    self.assertEqual(msg.request, 1)
+                elif isinstance(msg, message.Call):
+                    self.assertEqual(msg.request, 2)
+                return orig(msg)
+            orig0 = trans0.send
+            orig1 = trans1.send
+            trans0.send = lambda msg: verify_seq_id(orig0, msg)
+            trans1.send = lambda msg: verify_seq_id(orig1, msg)
+
+            def myproc1():
+                return 23
+
+            yield handler0.register(myproc1, u'com.myapp.myproc1')
+            yield handler1.register(myproc1, u'com.myapp.myproc1')
+
+            d0 = handler0.call(u'com.myapp.myproc1')
+            d1 = handler1.call(u'com.myapp.myproc1')
+            res = yield DeferredList([d0, d1])
+            self.assertEqual(res, [(True, 23), (True, 23)])
+
+        @inlineCallbacks
         def test_invoke_user_raises(self):
             handler = ApplicationSession()
             handler.traceback_app = True
             MockTransport(handler)
+            errors = []
+
+            def log_error(e, msg):
+                errors.append((e.value, msg))
+            handler.onUserError = log_error
 
             name_error = NameError('foo')
 
@@ -566,9 +637,8 @@ if os.environ.get('USE_TWISTED', False):
 
             # also, we should have logged the real NameError to
             # Twisted.
-            errs = self.flushLoggedErrors()
-            self.assertEqual(1, len(errs))
-            self.assertEqual(name_error, errs[0].value)
+            self.assertEqual(1, len(errors))
+            self.assertEqual(name_error, errors[0][0])
 
         @inlineCallbacks
         def test_invoke_progressive_result(self):
@@ -584,7 +654,7 @@ if os.environ.get('USE_TWISTED', False):
                     yield succeed(i)
                 returnValue(42)
 
-            progressive = map(lambda _: Deferred(), range(10))
+            progressive = list(map(lambda _: Deferred(), range(10)))
 
             def progress(arg):
                 progressive[arg].callback(arg)
@@ -622,6 +692,11 @@ if os.environ.get('USE_TWISTED', False):
 
             got_progress = Deferred()
             progress_error = NameError('foo')
+            logged_errors = []
+
+            def got_error(e, msg):
+                logged_errors.append((e.value, msg))
+            handler.onUserError = got_error
 
             def progress(arg, something=None):
                 self.assertEqual('nothing', something)
@@ -641,15 +716,15 @@ if os.environ.get('USE_TWISTED', False):
                 options=types.CallOptions(on_progress=progress),
                 key='word',
             )
+
             self.assertEqual(42, res)
             # our progress handler raised an error, but not before
             # recording success.
             self.assertTrue(got_progress.called)
             self.assertEqual('life', got_progress.result)
             # make sure our progress-handler error was logged
-            errs = self.flushLoggedErrors()
-            self.assertEqual(1, len(errs))
-            self.assertEqual(progress_error, errs[0].value)
+            self.assertEqual(1, len(logged_errors))
+            self.assertEqual(progress_error, logged_errors[0][0])
 
         @inlineCallbacks
         def test_invoke_progressive_result_no_args(self):
@@ -716,6 +791,43 @@ if os.environ.get('USE_TWISTED', False):
             self.assertTrue(got_progress.called)
             self.assertEqual('word', got_progress.result)
 
+        @inlineCallbacks
+        def test_call_exception_runtimeerror(self):
+            handler = ApplicationSession()
+            MockTransport(handler)
+            exception = RuntimeError("a simple error")
+
+            def raiser():
+                raise exception
+
+            registration0 = yield handler.register(raiser, u"com.myapp.myproc_error")
+            try:
+                yield handler.call(u'com.myapp.myproc_error')
+                self.fail()
+            except Exception as e:
+                self.assertIsInstance(e, ApplicationError)
+                self.assertEqual(e.error_message(), "wamp.error.runtime_error: a simple error")
+            finally:
+                yield registration0.unregister()
+
+        @inlineCallbacks
+        def test_call_exception_bare(self):
+            handler = ApplicationSession()
+            MockTransport(handler)
+            exception = Exception()
+
+            def raiser():
+                raise exception
+
+            registration0 = yield handler.register(raiser, u"com.myapp.myproc_error")
+            try:
+                yield handler.call(u'com.myapp.myproc_error')
+                self.fail()
+            except Exception as e:
+                self.assertIsInstance(e, ApplicationError)
+            finally:
+                yield registration0.unregister()
+
         # ## variant 1: works
         # def test_publish1(self):
         #    d = self.handler.publish(u'de.myapp.topic1')
@@ -731,7 +843,3 @@ if os.environ.get('USE_TWISTED', False):
         # def test_publish3(self):
         #    with self.assertRaises(ApplicationError):
         #       yield self.handler.publish(u'de.myapp.topic1')
-
-
-if __name__ == '__main__':
-    unittest.main()

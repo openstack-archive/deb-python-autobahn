@@ -51,21 +51,12 @@ class EchoClientProtocol(WebSocketClientProtocol):
 if __name__ == '__main__':
 
     if len(sys.argv) < 2:
-        print("Need the WebSocket server address, i.e. ws://localhost:9000")
+        print("Need the WebSocket server address, i.e. ws://127.0.0.1:9000")
         sys.exit(1)
 
-    if len(sys.argv) > 2 and sys.argv[2] == 'debug':
-        log.startLogging(sys.stdout)
-        debug = True
-    else:
-        debug = False
+    log.startLogging(sys.stdout)
 
-    factory = WebSocketClientFactory(sys.argv[1],
-                                     debug=debug,
-                                     debugCodePaths=debug)
-
-    # uncomment to use Hixie-76 protocol
-    # factory.setProtocolOptions(allowHixie76 = True, version = 0)
+    factory = WebSocketClientFactory(sys.argv[1])
     factory.protocol = EchoClientProtocol
     connectWS(factory)
 

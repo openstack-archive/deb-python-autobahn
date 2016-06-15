@@ -8,6 +8,7 @@ autobahn.egg-info
 *.sublime-project
 __pycache__
 dropin.cache
+*dropin.cache.new
 *.egg
 *.tar.gz
 _trial_temp
@@ -22,3 +23,10 @@ egg\-info
 egg
 .egg*
 .tox
+htmlcov/
+.coverage
+*~
+*.log
+*.pid
+.cache/
+node.key

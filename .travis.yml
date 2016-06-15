@@ -1,26 +1,67 @@
 language: python
+sudo: false
 
 install:
-  - pip install tox
+  - pip install tox codecov
 
 env:
   - TOX_ENV=flake8
-  - TOX_ENV=py26twisted
-  - TOX_ENV=py26asyncio
-  - TOX_ENV=py27twisted
-  - TOX_ENV=py27asyncio
-  - TOX_ENV=py33asyncio
-  - TOX_ENV=py34asyncio
-  - TOX_ENV=pypy2twisted
-  - TOX_ENV=pypy2asyncio
+
+  - TOX_ENV=py27-tw121
+  - TOX_ENV=py27-tw132
+  - TOX_ENV=py27-tw154
+  - TOX_ENV=py27-tw162
+  - TOX_ENV=py27-twtrunk
+  - TOX_ENV=py27-asyncio
+
+  - TOX_ENV=pypy-tw121
+  - TOX_ENV=pypy-tw132
+  - TOX_ENV=pypy-tw154
+  - TOX_ENV=pypy-tw162
+  - TOX_ENV=pypy-twtrunk
+  - TOX_ENV=pypy-asyncio
+
+  - TOX_ENV=py33-tw154
+  - TOX_ENV=py33-tw162
+  - TOX_ENV=py33-twtrunk
+  - TOX_ENV=py33-asyncio
+
+  - TOX_ENV=py34-tw154
+  - TOX_ENV=py34-tw162
+  - TOX_ENV=py34-twtrunk
+  - TOX_ENV=py34-asyncio
+
+  #- TOX_ENV=py35-tw154
+  #- TOX_ENV=py35-tw162
+  #- TOX_ENV=py35-twtrunk
+  #- TOX_ENV=py35-asyncio
 
 script:
   - tox -c tox.ini -e $TOX_ENV
 
-# This reportedly works around an issue downloading packages from pypi on
-# travis. Consider removing this after the underlying issue is fixed.
-# https://github.com/travis-ci/travis-ci/issues/2389
-sudo: false
+after_script:
+  - codecov
+
+matrix:
+  fast_finish: true
+
+  # https://github.com/travis-ci/travis-ci/issues/4794#issuecomment-143758799
+  include:
+    - python: 3.5
+      env:
+      - TOX_ENV=py35-tw154
+
+    - python: 3.5
+      env:
+      - TOX_ENV=py35-tw162
+
+    - python: 3.5
+      env:
+      - TOX_ENV=py35-twtrunk
+
+    - python: 3.5
+      env:
+      - TOX_ENV=py35-asyncio
 
 notifications:
    irc:
