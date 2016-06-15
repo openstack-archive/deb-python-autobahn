@@ -1,6 +1,7 @@
 python-autobahn (0.14.1+dfsg1-1) experimental; urgency=medium
 
   * New upstream release.
+  * Fixed (build-)depends for this release.
 
  -- Thomas Goirand <zigo@debian.org>  Wed, 15 Jun 2016 10:01:09 +0200
 
