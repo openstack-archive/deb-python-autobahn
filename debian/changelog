@@ -4,6 +4,7 @@ python-autobahn (0.14.1+dfsg1-1) experimental; urgency=medium
   * Fixed (build-)depends for this release.
   * Drop Work-around_old_vs._new_twisted_client-endpoint_parser.patch applied
     upstream.
+  * Only attempt to run tests from autobahn (ie: exclude examples).
 
  -- Thomas Goirand <zigo@debian.org>  Wed, 15 Jun 2016 10:01:09 +0200
 
