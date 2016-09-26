@@ -1,7 +1,12 @@
 python-autobahn (0.14.1+dfsg1-2) UNRELEASED; urgency=medium
 
+  [ Thomas Goirand ]
   * Add lintian override for missing JS sources: these are only the examples,
     which aren't even packaged in Debian.
+
+  [ Ondřej Nový ]
+  * d/s/options: extend-diff-ignore of .gitreview
+  * d/control: Using OpenStack's Gerrit as VCS URLs.
 
  -- Thomas Goirand <zigo@debian.org>  Sun, 17 Jul 2016 13:27:58 +0000
 

@@ -42,8 +42,8 @@ Build-Depends-Indep: python-cbor,
                      python3-unittest2 (>= 1.1.0),
                      python3-zope.interface (>= 3.6),
 Standards-Version: 3.9.8
-Vcs-Browser: https://anonscm.debian.org/gitweb/?p=openstack/python-autobahn.git
-Vcs-Git: https://anonscm.debian.org/git/openstack/python-autobahn.git
+Vcs-Browser: https://git.openstack.org/cgit/openstack/deb-python-autobahn?h=debian%2Fnewton
+Vcs-Git: https://git.openstack.org/openstack/deb-python-autobahn -b debian/newton
 Homepage: http://autobahn.ws/python
 
 Package: python-autobahn
