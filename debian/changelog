@@ -1,6 +1,7 @@
-python-autobahn (0.14.1+dfsg1-2) UNRELEASED; urgency=medium
+python-autobahn (0.14.1+dfsg1-2) unstable; urgency=medium
 
   [ Thomas Goirand ]
+  * Uploading to unstable.
   * Add lintian override for missing JS sources: these are only the examples,
     which aren't even packaged in Debian.
 
