@@ -1,3 +1,9 @@
+python-autobahn (0.14.1+dfsg1-3) UNRELEASED; urgency=medium
+
+  * Bumped debhelper compat version to 10
+
+ -- Ondřej Nový <onovy@debian.org>  Thu, 24 Nov 2016 00:04:16 +0100
+
 python-autobahn (0.14.1+dfsg1-2) unstable; urgency=medium
 
   [ Thomas Goirand ]
