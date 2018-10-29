@@ -43,7 +43,7 @@ if not six.PY3:
     import urlparse
 else:
     # Python 3
-    from urllib import parse as urlparse
+    from six.moves.urllib.parse import urlparse
 
 wsschemes = ["rs", "rss"]
 urlparse.uses_relative.extend(wsschemes)
